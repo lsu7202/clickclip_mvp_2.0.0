@@ -1,0 +1,45 @@
+# ClickClip 2.0.0 — 3-container compose. 모든 env는 .env 단일 관리.
+services:
+  ai_server:
+    build: ./ai_server
+    container_name: clickclip_ai
+    env_file: .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ai_server:/app
+      - ./resources:/resources:ro
+      - ./resources/gcp:/run/gcp:ro
+      - ./data/workspace:/workspace
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  backend:
+    build: ./backend
+    container_name: clickclip_backend
+    env_file: .env
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - ./resources:/resources
+      - ./data/workspace:/workspace
+      # 실제 CapCut 드래프트 폴더로 직접 출력(.env CAPCUT_DRAFT_ROOT_HOST)
+      - ${CAPCUT_DRAFT_ROOT_HOST}:/capcut_drafts
+    depends_on:
+      - ai_server
+    command: npm run dev
+
+  frontend:
+    build: ./frontend
+    container_name: clickclip_frontend
+    environment:
+      - VITE_BACKEND_URL=${VITE_BACKEND_URL}
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    command: npm run dev -- --host 0.0.0.0

@@ -1,0 +1,18 @@
+{
+  "name": "clickclip-backend",
+  "version": "2.0.0",
+  "type": "module",
+  "description": "ClickClip 2.0.0 backend (Express, camelCase, snake<->camel boundary)",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "axios": "^1.7.9",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^11.0.5"
+  }
+}

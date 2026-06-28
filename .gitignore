@@ -1,0 +1,35 @@
+# deps
+node_modules/
+**/node_modules/
+__pycache__/
+*.pyc
+.venv/
+
+# env / secrets
+.env
+resources/gcp/*.json
+
+# generated runtime data (keep dir, ignore contents)
+data/workspace/*
+!data/workspace/.gitkeep
+data/capcut_drafts/*
+!data/capcut_drafts/.gitkeep
+
+# user-managed resource contents (keep dirs, ignore contents)
+resources/my_templates/*
+!resources/my_templates/.gitkeep
+resources/my_samples/*
+!resources/my_samples/.gitkeep
+resources/my_styles/*
+!resources/my_styles/.gitkeep
+resources/my_voices/*
+!resources/my_voices/.gitkeep
+resources/capcut_template/*
+!resources/capcut_template/.gitkeep
+resources/fonts/*
+!resources/fonts/.gitkeep
+
+# build
+frontend/dist/
+*.log
+.DS_Store
