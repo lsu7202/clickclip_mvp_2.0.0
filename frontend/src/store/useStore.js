@@ -40,6 +40,7 @@ export const useStore = create(
       scriptText: "",
       scenes: [],
       captions: [], // 자막2 = 원본 소스 타임라인 캡션 트랙(장면과 분리)
+      defaultVoiceId: null, // 대표 성우(설정 시 전 장면 적용 + 새 장면 기본)
       selectedSceneNumber: null,
       assetPanel: initialAssetPanel,
       jobs: [],
@@ -83,6 +84,20 @@ export const useStore = create(
         ),
       setSceneVoice: (sceneNumber, voiceId) =>
         get().updateScene(sceneNumber, { voiceId }),
+      // 대표 성우: 설정하면 모든 장면을 그 성우로 바꾸고, 이후 새 장면 기본값이 됨.
+      // 빈 값("개별 설정")이면 대표 해제만 — 기존 장면 성우는 건드리지 않음.
+      setDefaultVoice: (voiceId) => {
+        set({ defaultVoiceId: voiceId || null });
+        if (voiceId) mapScenes(set, get, (scenes) => scenes.map((sc) => ({ ...sc, voiceId })));
+      },
+      // 좌우반전(미디어 가로 뒤집기)
+      toggleFlipH: (sceneNumber) =>
+        mapScenes(set, get, (scenes) =>
+          scenes.map((sc) => (sc.sceneNumber === sceneNumber ? { ...sc, flipH: !sc.flipH } : sc))
+        ),
+      // 전체 장면 좌우반전 일괄 설정
+      setAllFlipH: (value) =>
+        mapScenes(set, get, (scenes) => scenes.map((sc) => ({ ...sc, flipH: value }))),
       // 수동 체류시간 override. us=null → 자동(도출값)으로 리셋.
       setSceneDuration: (sceneNumber, us) =>
         get().updateScene(sceneNumber, { manualDurationUs: us }),
@@ -91,14 +106,26 @@ export const useStore = create(
         get().updateScene(sceneNumber, { startSfx: sfx }),
       deleteScene: (sceneNumber) =>
         mapScenes(set, get, (scenes) => scenes.filter((sc) => sc.sceneNumber !== sceneNumber)),
+      // 여러 장면 한꺼번에 삭제(체크박스 선택)
+      deleteScenes: (sceneNumbers) =>
+        mapScenes(set, get, (scenes) => {
+          const kill = new Set(sceneNumbers);
+          return scenes.filter((sc) => !kill.has(sc.sceneNumber));
+        }),
 
       addSceneAfter: (sceneNumber) =>
         mapScenes(set, get, (scenes) => {
-          const voiceId = scenes[0]?.voiceId || "";
+          const voiceId = get().defaultVoiceId || scenes[0]?.voiceId || "";
           const idx = scenes.findIndex((sc) => sc.sceneNumber === sceneNumber);
           const copy = [...scenes];
           copy.splice(idx + 1, 0, emptyScene(voiceId));
           return copy;
+        }),
+      // 맨 앞(장면 1 위)에 장면 추가
+      addSceneAtStart: () =>
+        mapScenes(set, get, (scenes) => {
+          const voiceId = get().defaultVoiceId || scenes[0]?.voiceId || "";
+          return [emptyScene(voiceId), ...scenes];
         }),
 
       // ---- subtitle1 line level ----
@@ -126,17 +153,25 @@ export const useStore = create(
             ln.lineNumber === lineNumber ? { ...ln, ttsText, ttsTextEdited: true } : ln
           )
         ),
-      setLineVoice: (sceneNumber, lineNumber, voiceId) =>
-        get()._mapLines(sceneNumber, (lines) =>
-          lines.map((ln) => (ln.lineNumber === lineNumber ? { ...ln, voiceId } : ln))
-        ),
-      setLineTts: (sceneNumber, lineNumber, tts) =>
-        get()._mapLines(sceneNumber, (lines) =>
-          lines.map((ln) => (ln.lineNumber === lineNumber ? { ...ln, tts } : ln))
-        ),
+      // 장면 TTS 결과 반영: 합친 오디오(sceneTts) + 줄별 시간범위(ttsRange) 매핑
+      setSceneTts: (sceneNumber, sceneTts, lineRanges) =>
+        set((s) => ({
+          scenes: s.scenes.map((sc) => {
+            if (sc.sceneNumber !== sceneNumber) return sc;
+            const byNum = new Map((lineRanges || []).map((r) => [r.lineNumber, r]));
+            return {
+              ...sc,
+              sceneTts,
+              subtitle1Lines: sc.subtitle1Lines.map((ln) => {
+                const r = byNum.get(ln.lineNumber);
+                return { ...ln, ttsRange: r && r.startUs != null ? { startUs: r.startUs, endUs: r.endUs } : null };
+              }),
+            };
+          }),
+        })),
       addLine: (sceneNumber, atIndex = null) =>
         get()._mapLines(sceneNumber, (lines, sc) => {
-          const ln = newSubtitle1Line("", null);
+          const ln = newSubtitle1Line("");
           if (atIndex == null) return [...lines, ln];
           const copy = [...lines];
           copy.splice(atIndex, 0, ln);
@@ -156,7 +191,7 @@ export const useStore = create(
           const after = ln.text.slice(caret);
           const copy = [...lines];
           copy[i] = { ...ln, text: before, ttsText: ln.ttsTextEdited ? ln.ttsText : before };
-          copy.splice(i + 1, 0, newSubtitle1Line(after, null));
+          copy.splice(i + 1, 0, newSubtitle1Line(after));
           return copy;
         }),
 
@@ -308,6 +343,7 @@ export const useStore = create(
           scriptText: "",
           scenes: [],
           captions: [],
+          defaultVoiceId: null,
           selectedSceneNumber: null,
           jobs: [],
           assetPanel: initialAssetPanel,
@@ -318,6 +354,7 @@ export const useStore = create(
       partialize: (s) => ({
         scenes: s.scenes,
         captions: s.captions,
+        defaultVoiceId: s.defaultVoiceId,
         title: s.title,
         templateId: s.templateId,
         language: s.language,

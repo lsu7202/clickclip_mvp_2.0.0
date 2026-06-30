@@ -38,12 +38,9 @@ export function collectAssets(scenes, templateId, folderName, draftDir) {
     if (scene.media?.localPath) {
       scene.media.capcutPath = copyMediaOnce(scene.media.localPath);
     }
-    // 자막1 TTS 오디오
-    for (const ln of scene.subtitle1Lines || []) {
-      if (ln.tts?.localPath) {
-        const { capcutPath } = copyInto(wsAbs(ln.tts.localPath));
-        ln.tts.capcutPath = capcutPath;
-      }
+    // 자막1 TTS 오디오(장면당 합친 1개)
+    if (scene.sceneTts?.localPath) {
+      scene.sceneTts.capcutPath = copyMediaOnce(scene.sceneTts.localPath);
     }
     // 장면 시작 효과음
     if (scene.startSfx?.localPath) {

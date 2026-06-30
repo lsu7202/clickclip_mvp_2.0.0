@@ -17,7 +17,7 @@ import path from "node:path";
 import { v4 as uuid } from "uuid";
 
 import { config } from "../../config.js";
-import { sceneStartsUs, subtitle1LineStartsUs, sceneDurationUs, mediaSrcStart, mediaUsedUs } from "../timing.js";
+import { sceneStartsUs, subtitle1LineStartsUs, sceneDurationUs, mediaSrcStart, mediaUsedUs, lineDurationUs } from "../timing.js";
 
 const UID = () => uuid().toUpperCase();
 const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -207,7 +207,11 @@ export function buildDraft(scenes, { templateId, framePath, folderName, captions
           sourceUs: isVideo ? Math.min(usedUs, durUs) : durUs,
           sourceStartUs: srcStart,
           volume: isVideo ? (scene.muted ? 0 : 1) : undefined,
-          clipOverride: { scale: { x: cover, y: cover }, transform: { x: 0, y: 0 } },
+          clipOverride: {
+            scale: { x: cover, y: cover },
+            transform: { x: 0, y: 0 },
+            flip: { horizontal: !!scene.flipH, vertical: false }, // 좌우반전
+          },
         })
       );
     });
@@ -278,12 +282,12 @@ export function buildDraft(scenes, { templateId, framePath, folderName, captions
 
   if (textSegTpl) {
     const baseY = textSegTpl.clip?.transform?.y ?? -0.73;
-    // 자막1 (기본 위치)
+    // 자막1 (기본 위치) — 합친 오디오 내 줄별 [start,end] 위치에
     const s1 = [];
     scenes.forEach((scene, i) => {
       const lineStarts = subtitle1LineStartsUs(scene);
       (scene.subtitle1Lines || []).forEach((ln, li) => {
-        const dur = ln.tts?.durationUs || 0;
+        const dur = lineDurationUs(ln);
         if (dur > 0 && ln.text?.trim()) {
           s1.push({ text: ln.text, startUs: starts[i] + lineStarts[li], durationUs: dur });
         }
@@ -299,30 +303,28 @@ export function buildDraft(scenes, { templateId, framePath, folderName, captions
     if (s2.length) newTracks.push(buildTextTrack(s2, baseY + 0.12));
   }
 
-  // ---- 오디오 트랙(자막1 TTS) ----
+  // ---- 오디오 트랙(자막1 TTS) — 장면당 합친 오디오 1세그먼트 ----
   if (audioSegTpl) {
     const track = { ...clone(audioTrackTpl), id: UID(), segments: [] };
     scenes.forEach((scene, i) => {
-      const lineStarts = subtitle1LineStartsUs(scene);
-      (scene.subtitle1Lines || []).forEach((ln, li) => {
-        if (!ln.tts?.capcutPath) return;
-        const matId = clonePrimary(audioSegTpl.material_id, "audios", {
-          type: "extract_music",
-          path: ln.tts.capcutPath,
-          duration: ln.tts.durationUs,
-          name: `tts-${scene.sceneNumber}-${ln.lineNumber}`,
-        });
-        const refs = cloneBundle(audioSegTpl);
-        track.segments.push(
-          cloneSeg(audioSegTpl, {
-            materialId: matId, refs,
-            startUs: starts[i] + lineStarts[li],
-            durationUs: ln.tts.durationUs,
-            sourceUs: ln.tts.durationUs,
-            volume: 1,
-          })
-        );
+      const a = scene.sceneTts;
+      if (!a?.capcutPath || !a.durationUs) return;
+      const matId = clonePrimary(audioSegTpl.material_id, "audios", {
+        type: "extract_music",
+        path: a.capcutPath,
+        duration: a.durationUs,
+        name: `tts-${scene.sceneNumber}`,
       });
+      const refs = cloneBundle(audioSegTpl);
+      track.segments.push(
+        cloneSeg(audioSegTpl, {
+          materialId: matId, refs,
+          startUs: starts[i],
+          durationUs: a.durationUs,
+          sourceUs: a.durationUs,
+          volume: 1,
+        })
+      );
     });
     if (track.segments.length) newTracks.push(track);
   }
@@ -383,11 +385,9 @@ export function buildDraft(scenes, { templateId, framePath, folderName, captions
         isVideo,
       });
     }
-    (scene.subtitle1Lines || []).forEach((ln) => {
-      if (ln.tts?.capcutPath) {
-        mediaEntries.push({ path: ln.tts.capcutPath, duration: ln.tts.durationUs, width: 0, height: 0, isVideo: false, isAudio: true });
-      }
-    });
+    if (scene.sceneTts?.capcutPath) {
+      mediaEntries.push({ path: scene.sceneTts.capcutPath, duration: scene.sceneTts.durationUs, width: 0, height: 0, isVideo: false, isAudio: true });
+    }
     if (scene.startSfx?.capcutPath) {
       mediaEntries.push({ path: scene.startSfx.capcutPath, duration: scene.startSfx.durationUs, width: 0, height: 0, isVideo: false, isAudio: true });
     }

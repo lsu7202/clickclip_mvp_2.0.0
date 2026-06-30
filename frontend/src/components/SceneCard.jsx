@@ -1,23 +1,30 @@
 import { useEffect, useState } from "react";
 
-import { generateTts, selectSoundEffect } from "../api/endpoints.js";
+import { generateSceneTts, selectSoundEffect } from "../api/endpoints.js";
 import { workspaceUrl } from "../api/client.js";
 import { useStore } from "../store/useStore.js";
-import { sceneDurationUs } from "../store/sceneOps.js";
+import { lineDurationUs, sceneDurationUs } from "../store/sceneOps.js";
 import { useSoundEffects, useVoices } from "../hooks/useResources.js";
 import { fmtUs } from "../util/format.js";
 import { playAudio } from "../util/audio.js";
 import { Spinner } from "./Loading.jsx";
 import TranslatedLine from "./TranslatedLine.jsx";
 
-function LineRow({ scene, line, voices }) {
+// 장면의 자막1 줄들을 합쳐 1회 합성(자연스러운 발화). 성우는 장면 단위.
+export async function runSceneTts(scene, voices, language, setSceneTts) {
+  const voiceId = scene.voiceId || voices[0]?.voiceId;
+  if (!voiceId) return;
+  const lines = scene.subtitle1Lines.map((l) => ({ lineNumber: l.lineNumber, ttsText: l.ttsText || "" }));
+  if (!lines.some((l) => l.ttsText.trim())) return;
+  const res = await generateSceneTts({ sceneNumber: scene.sceneNumber, lines, voiceId, language });
+  setSceneTts(scene.sceneNumber, { localPath: res.localPath, durationUs: res.durationUs }, res.lineRanges);
+}
+
+function LineRow({ scene, line }) {
   const {
-    updateLineText, updateLineTtsText, setLineVoice, setLineTts,
-    removeLine, splitLineAtCaret, addLine,
+    updateLineText, updateLineTtsText, removeLine, splitLineAtCaret, addLine,
   } = useStore();
-  const language = useStore((s) => s.language);
   const [showTts, setShowTts] = useState(false);
-  const [busy, setBusy] = useState(false);
 
   const onKeyDown = (e) => {
     if (e.key !== "Enter" || e.shiftKey) return;
@@ -38,24 +45,7 @@ function LineRow({ scene, line, voices }) {
     }
   };
 
-  const onTts = async () => {
-    const voiceId = line.voiceId || scene.voiceId || voices[0]?.voiceId;
-    if (!voiceId) return;
-    setBusy(true);
-    try {
-      const tts = await generateTts({
-        ttsText: line.ttsText, voiceId, language,
-        sceneNumber: scene.sceneNumber, lineNumber: line.lineNumber,
-      });
-      setLineTts(scene.sceneNumber, line.lineNumber, tts);
-    } catch (e) {
-      alert(`TTS 생성 실패: ${e?.response?.data?.error || e.message || "알 수 없는 오류"}`);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const sceneVoiceName = voices.find((v) => v.voiceId === scene.voiceId)?.name || "장면 성우";
+  const dur = lineDurationUs(line);
 
   return (
     <div className="line-row">
@@ -77,32 +67,13 @@ function LineRow({ scene, line, voices }) {
               placeholder="발음 텍스트 (TTS)"
               onChange={(e) => updateLineTtsText(scene.sceneNumber, line.lineNumber, e.target.value)}
             />
-            <div className="row" style={{ marginTop: 4 }}>
-              <label style={{ margin: 0, fontSize: 11 }}>이 줄 성우</label>
-              <select
-                style={{ width: "auto" }}
-                value={line.voiceId || ""}
-                onChange={(e) => setLineVoice(scene.sceneNumber, line.lineNumber, e.target.value || null)}
-              >
-                <option value="">장면 기본 ({sceneVoiceName})</option>
-                {voices.map((v) => <option key={v.voiceId} value={v.voiceId}>{v.name}</option>)}
-              </select>
-            </div>
           </div>
         )}
         <div className="line-tools">
           <button className="ghost" style={{ fontSize: 12 }} onClick={() => setShowTts((v) => !v)}>
-            발음·성우{line.ttsTextEdited ? " ✎" : ""} ▾
+            발음{line.ttsTextEdited ? " ✎" : ""} ▾
           </button>
-          {busy ? <Spinner sm /> : (
-            <button className="ghost" style={{ fontSize: 12 }} onClick={onTts}>
-              {line.tts ? `TTS ✓ ${fmtUs(line.tts.durationUs)}` : "TTS 생성"}
-            </button>
-          )}
-          {line.tts && (
-            <button className="ghost" style={{ fontSize: 12 }} title="미리듣기"
-              onClick={() => playAudio(workspaceUrl(line.tts.localPath))}>▶</button>
-          )}
+          {dur > 0 && <span className="muted" style={{ fontSize: 11 }}>🔊 {fmtUs(dur)}</span>}
           <button className="ghost danger" style={{ fontSize: 12 }} onClick={() => removeLine(scene.sceneNumber, line.lineNumber)}>✕</button>
         </div>
       </div>
@@ -110,18 +81,18 @@ function LineRow({ scene, line, voices }) {
   );
 }
 
-export default function SceneCard({ scene }) {
+export default function SceneCard({ scene, checked = false, onToggleCheck }) {
   const voices = useVoices();
   const soundEffects = useSoundEffects();
   const selectedSceneNumber = useStore((s) => s.selectedSceneNumber);
   const {
     selectScene, toggleMuted, toggleFitToTts, setSceneVoice, deleteScene,
-    addLine, mergeSceneUp, splitSceneAtLine, setSceneDuration, setSceneSfx,
+    addLine, mergeSceneUp, splitSceneAtLine, setSceneDuration, setSceneSfx, toggleFlipH,
   } = useStore();
   const [ttsAllBusy, setTtsAllBusy] = useState(false);
   const [sfxBusy, setSfxBusy] = useState(false);
   const language = useStore((s) => s.language);
-  const setLineTts = useStore((s) => s.setLineTts);
+  const setSceneTts = useStore((s) => s.setSceneTts);
 
   const selected = scene.sceneNumber === selectedSceneNumber;
   const dur = sceneDurationUs(scene);
@@ -147,19 +118,12 @@ export default function SceneCard({ scene }) {
     if (!valid) setSceneVoice(scene.sceneNumber, voices[0].voiceId);
   }, [voices, scene.voiceId, scene.sceneNumber]);
 
-  const onTtsAll = async () => {
+  const onSceneTts = async () => {
     setTtsAllBusy(true);
     try {
-      for (const line of scene.subtitle1Lines) {
-        if (!line.ttsText?.trim()) continue;
-        const voiceId = line.voiceId || scene.voiceId || voices[0]?.voiceId;
-        if (!voiceId) continue;
-        const tts = await generateTts({
-          ttsText: line.ttsText, voiceId, language,
-          sceneNumber: scene.sceneNumber, lineNumber: line.lineNumber,
-        });
-        setLineTts(scene.sceneNumber, line.lineNumber, tts);
-      }
+      await runSceneTts(scene, voices, language, setSceneTts);
+    } catch (e) {
+      alert(`TTS 생성 실패: ${e?.response?.data?.error || e.message || "오류"}`);
     } finally {
       setTtsAllBusy(false);
     }
@@ -168,11 +132,17 @@ export default function SceneCard({ scene }) {
   return (
     <div className={`scene-card${selected ? " selected" : ""}`} onClick={() => selectScene(scene.sceneNumber)}>
       <div className="head">
+        <input type="checkbox" style={{ width: "auto", margin: "0 4px 0 0" }} checked={checked}
+          title="선택(다중 삭제)" onClick={(e) => e.stopPropagation()} onChange={() => onToggleCheck?.()} />
         <span className="num">장면 {scene.sceneNumber}</span>
         <span className="spacer" />
         <button className="ghost" style={{ fontSize: 12 }} title="길이를 TTS에 맞춤"
           onClick={(e) => { e.stopPropagation(); toggleFitToTts(scene.sceneNumber); }}>
           {scene.fitToTts ? "⏱TTS맞춤 ✓" : "⏱TTS맞춤"}
+        </button>
+        <button className="ghost" style={{ fontSize: 12 }} title="좌우반전"
+          onClick={(e) => { e.stopPropagation(); toggleFlipH(scene.sceneNumber); }}>
+          {scene.flipH ? "⇋ 반전 ✓" : "⇋ 반전"}
         </button>
         <button className="ghost" style={{ fontSize: 12 }} title="원본 음소거"
           onClick={(e) => { e.stopPropagation(); toggleMuted(scene.sceneNumber); }}>
@@ -187,7 +157,8 @@ export default function SceneCard({ scene }) {
       </div>
 
       <div className="body">
-        <div className="thumb" onClick={(e) => { e.stopPropagation(); selectScene(scene.sceneNumber); }}>
+        <div className="thumb" onClick={(e) => { e.stopPropagation(); selectScene(scene.sceneNumber); }}
+          style={scene.flipH ? { transform: "scaleX(-1)" } : undefined}>
           {scene.media && scene.media.durationUs != null ? (
             // 분할된 장면은 source 윈도우 시작 프레임만 미리보기(#t=start)
             <video src={workspaceUrl(scene.media.localPath) + (scene.media.sourceStartUs ? `#t=${(scene.media.sourceStartUs / 1e6).toFixed(2)}` : "")} muted />
@@ -210,7 +181,7 @@ export default function SceneCard({ scene }) {
 
           {scene.subtitle1Lines.map((line, i) => (
             <div key={line.lineNumber} onClick={(e) => e.stopPropagation()}>
-              <LineRow scene={scene} line={line} voices={voices} />
+              <LineRow scene={scene} line={line} />
               {i < scene.subtitle1Lines.length - 1 && (
                 <button className="add-line" style={{ fontSize: 11 }}
                   onClick={() => splitSceneAtLine(scene.sceneNumber, i + 1)}>⎯ 여기서 장면 분리 ⎯</button>
@@ -223,7 +194,11 @@ export default function SceneCard({ scene }) {
 
       <div className="toolbar" onClick={(e) => e.stopPropagation()}>
         {ttsAllBusy ? <Spinner sm /> : (
-          <button className="ghost" onClick={onTtsAll} disabled={scene.subtitle1Lines.length === 0}>🔊 이 장면 TTS</button>
+          <button className="ghost" onClick={onSceneTts} disabled={scene.subtitle1Lines.length === 0}>🔊 장면 TTS</button>
+        )}
+        {scene.sceneTts?.localPath && (
+          <button className="ghost" style={{ fontSize: 12 }} title="장면 TTS 미리듣기"
+            onClick={() => playAudio(workspaceUrl(scene.sceneTts.localPath))}>▶ {fmtUs(scene.sceneTts.durationUs)}</button>
         )}
         {/* 장면 시작 효과음 */}
         {sfxBusy ? <Spinner sm /> : scene.startSfx ? (

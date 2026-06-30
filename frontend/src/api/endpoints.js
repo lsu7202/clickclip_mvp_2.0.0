@@ -4,8 +4,10 @@ import api from "./client.js";
 export const splitScenes = (scriptText, language) =>
   api.post("/scenes/split", { scriptText, language }).then((r) => r.data.scenes);
 
-export const generateTts = (payload) =>
-  // payload: { ttsText, voiceId, language, sceneNumber, lineNumber } → TtsResult
+export const generateSceneTts = (payload) =>
+  // payload: { sceneNumber, lines:[{lineNumber, ttsText}], voiceId, language }
+  //   → { localPath, durationUs, lineRanges:[{lineNumber, startUs, endUs}] }
+  // 장면의 자막1 줄들을 합쳐 1회 합성(자연스러운 발화) + char 타이밍으로 줄별 시간 복원
   api.post("/tts", payload).then((r) => r.data);
 
 export const generateAiMedia = (payload) =>

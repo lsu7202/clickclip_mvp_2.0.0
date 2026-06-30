@@ -1,5 +1,5 @@
 // §7.8 SRT: 자막1(내레이션) 기준 누적 절대 타임코드.
-import { sceneStartsUs, subtitle1LineStartsUs } from "../timing.js";
+import { sceneStartsUs, subtitle1LineStartsUs, lineDurationUs } from "../timing.js";
 
 function timecode(us) {
   const totalMs = Math.round(us / 1000);
@@ -18,7 +18,7 @@ export function buildSrt(scenes) {
   scenes.forEach((scene, si) => {
     const lineStarts = subtitle1LineStartsUs(scene);
     (scene.subtitle1Lines || []).forEach((ln, li) => {
-      const dur = ln.tts?.durationUs || 0;
+      const dur = lineDurationUs(ln);
       if (dur <= 0 || !ln.text?.trim()) return;
       const startUs = starts[si] + lineStarts[li];
       entries.push({ startUs, endUs: startUs + dur, text: ln.text });

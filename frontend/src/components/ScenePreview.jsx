@@ -15,12 +15,13 @@ export default function ScenePreview({ scene }) {
       )?.text
     : undefined;
 
+  const flip = scene?.flipH ? { transform: "scaleX(-1)" } : undefined;
   return (
     <div className="preview-frame">
       {media && media.durationUs != null ? (
-        <video src={workspaceUrl(media.localPath)} muted loop autoPlay playsInline />
+        <video src={workspaceUrl(media.localPath)} style={flip} muted loop autoPlay playsInline />
       ) : media ? (
-        <img src={workspaceUrl(media.localPath)} alt="" />
+        <img src={workspaceUrl(media.localPath)} style={flip} alt="" />
       ) : (
         <div className="empty" style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
           미디어 없음

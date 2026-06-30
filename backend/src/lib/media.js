@@ -14,6 +14,17 @@ export async function extractFrame(srcAbs, atUs, outAbs) {
   ]);
 }
 
+// 오디오를 [startUs,endUs] 구간으로 정확히 트림 + PTS 0 리셋.
+// char 타이밍의 발화 구간으로 앞뒤 무음 제거(dB 추정보다 정확, 줄 시간과 자동 정렬).
+export async function trimAudioRange(srcAbs, startUs, endUs, outAbs) {
+  const s = (Math.max(0, startUs) / 1_000_000).toFixed(3);
+  const e = (endUs / 1_000_000).toFixed(3);
+  await execFileP("ffmpeg", [
+    "-y", "-v", "error", "-i", srcAbs,
+    "-af", `atrim=start=${s}:end=${e},asetpts=PTS-STARTPTS`, outAbs,
+  ]);
+}
+
 // 오디오 포함 컨테이너의 길이(µs). probe()는 비디오 없는 파일에 null이라 별도 제공.
 export async function probeDurationUs(filePath) {
   const { stdout } = await execFileP("ffprobe", [

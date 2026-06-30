@@ -10,8 +10,12 @@ export function renumber(scenes) {
   }));
 }
 
+// 장면 TTS는 줄들을 합쳐 1회 합성한 오디오 1개 → 그 전체 길이가 발화 길이.
 export function ttsTotalUs(scene) {
-  return scene.subtitle1Lines.reduce((s, ln) => s + (ln.tts?.durationUs || 0), 0);
+  return scene.sceneTts?.durationUs || 0;
+}
+export function lineDurationUs(ln) {
+  return ln.ttsRange ? Math.max(0, ln.ttsRange.endUs - ln.ttsRange.startUs) : 0;
 }
 
 // 미디어 소스 윈도우(자막2 분할 시 한 파일을 공유하고 [start,end]만 다르게 가리킴).
@@ -54,8 +58,9 @@ export function sceneStartUs(scenes, index) {
   return acc;
 }
 
-export function newSubtitle1Line(text = "", voiceId = null) {
-  return { lineNumber: 0, text, ttsText: text, ttsTextEdited: false, voiceId, tts: null };
+export function newSubtitle1Line(text = "") {
+  // ttsRange: 장면 합친 오디오 내 이 줄의 [start,end]. 성우는 장면 단위(합성이라 줄별 불가).
+  return { lineNumber: 0, text, ttsText: text, ttsTextEdited: false, ttsRange: null };
 }
 
 export function emptyScene(voiceId, fitToTts = true) {

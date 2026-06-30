@@ -78,6 +78,7 @@ export default function SceneScrubber({ scene }) {
     const v = vref.current; if (!v) return;
     if (playing) { v.pause(); setPlaying(false); return; }
     if (v.currentTime * 1e6 >= winEnd - 20_000) v.currentTime = winStart / 1e6;
+    v.muted = !!scene.muted; // 재생 시 원본 소리(장면 음소거 🔇면 무음)
     v.play(); setPlaying(true);
   };
   const onTimeUpdate = () => {
@@ -90,7 +91,7 @@ export default function SceneScrubber({ scene }) {
   const setFromX = (clientX, el) => {
     const r = el.getBoundingClientRect();
     const p = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
-    if (playing) { vref.current?.pause(); setPlaying(false); }
+    if (playing) { const v = vref.current; if (v) { v.pause(); v.muted = true; } setPlaying(false); }
     setOffset(Math.round(p * winLen));
   };
   const step = (dir) => { setOffset((o) => Math.max(0, Math.min(winLen, o + dir * stepUs))); };
@@ -120,7 +121,10 @@ export default function SceneScrubber({ scene }) {
 
   const pct = (offset / winLen) * 100;
   const fmt = (us) => (us / 1e6).toFixed(2);
-  const cover = useMemo(() => ({ objectFit: "cover", width: "100%", height: "100%" }), []);
+  const cover = useMemo(
+    () => ({ objectFit: "cover", width: "100%", height: "100%", transform: scene.flipH ? "scaleX(-1)" : undefined }),
+    [scene.flipH]
+  );
 
   return (
     <div className="scene-scrubber">

@@ -1,13 +1,13 @@
 import { useState } from "react";
 
-import { exportDraft, generateTts } from "../api/endpoints.js";
+import { exportDraft } from "../api/endpoints.js";
 import { useStore } from "../store/useStore.js";
 import { useAutoTranslate } from "../hooks/useAutoTranslate.js";
 import { useVoices } from "../hooks/useResources.js";
 import { totalDurationUs } from "../store/sceneOps.js";
 import { fmtUs } from "../util/format.js";
 import ScenePreview from "./ScenePreview.jsx";
-import SceneCard from "./SceneCard.jsx";
+import SceneCard, { runSceneTts } from "./SceneCard.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import BottomDock from "./BottomDock.jsx";
 import CaptionTrack from "./CaptionTrack.jsx";
@@ -23,9 +23,14 @@ export default function EditorScreen() {
   const templateId = useStore((s) => s.templateId);
   const setStep = useStore((s) => s.setStep);
   const addSceneAfter = useStore((s) => s.addSceneAfter);
+  const addSceneAtStart = useStore((s) => s.addSceneAtStart);
   const setScenes = useStore((s) => s.setScenes);
   const selectScene = useStore((s) => s.selectScene);
-  const setLineTts = useStore((s) => s.setLineTts);
+  const setSceneTts = useStore((s) => s.setSceneTts);
+  const defaultVoiceId = useStore((s) => s.defaultVoiceId);
+  const setDefaultVoice = useStore((s) => s.setDefaultVoice);
+  const deleteScenes = useStore((s) => s.deleteScenes);
+  const setAllFlipH = useStore((s) => s.setAllFlipH);
   const voices = useVoices();
   useAutoTranslate();
 
@@ -33,9 +38,23 @@ export default function EditorScreen() {
   const [exportResult, setExportResult] = useState(null);
   const [exportErr, setExportErr] = useState("");
   const [ttsAllBusy, setTtsAllBusy] = useState(false);
+  const [checked, setChecked] = useState(() => new Set()); // 다중삭제 체크
+
+  const toggleCheck = (sceneNumber) =>
+    setChecked((prev) => {
+      const next = new Set(prev);
+      next.has(sceneNumber) ? next.delete(sceneNumber) : next.add(sceneNumber);
+      return next;
+    });
+  const onDeleteChecked = () => {
+    if (checked.size === 0) return;
+    deleteScenes([...checked]);
+    setChecked(new Set());
+  };
 
   const selected = scenes.find((sc) => sc.sceneNumber === selectedSceneNumber) || null;
   const total = totalDurationUs(scenes);
+  const allFlipped = scenes.length > 0 && scenes.every((sc) => sc.flipH);
 
   const onExport = async () => {
     setExportErr("");
@@ -50,27 +69,15 @@ export default function EditorScreen() {
     }
   };
 
-  // 모든 장면의 모든 자막1 줄 TTS 생성
+  // 모든 장면 TTS 생성(장면별로 줄을 합쳐 1회 합성)
   const onGenerateAllTts = async () => {
-    const jobs = [];
-    for (const sc of scenes) {
-      for (const ln of sc.subtitle1Lines) {
-        if (ln.ttsText?.trim()) jobs.push({ sc, ln });
-      }
-    }
-    if (jobs.length === 0) return;
+    if (scenes.length === 0) return;
     setTtsAllBusy(true);
     try {
-      for (const { sc, ln } of jobs) {
-        const voiceId = ln.voiceId || sc.voiceId || voices[0]?.voiceId;
-        if (!voiceId) continue;
+      for (const sc of scenes) {
         try {
-          const tts = await generateTts({
-            ttsText: ln.ttsText, voiceId, language,
-            sceneNumber: sc.sceneNumber, lineNumber: ln.lineNumber,
-          });
-          setLineTts(sc.sceneNumber, ln.lineNumber, tts);
-        } catch { /* 실패 줄은 건너뜀 */ }
+          await runSceneTts(sc, voices, language, setSceneTts);
+        } catch { /* 실패 장면은 건너뜀 */ }
       }
     } finally {
       setTtsAllBusy(false);
@@ -102,6 +109,21 @@ export default function EditorScreen() {
         <CaptionTrack />
 
         <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          {/* 대표 성우: 선택하면 전 장면 적용 + 이후 새 장면 기본 */}
+          <div className="row" style={{ alignItems: "center", gap: 6 }}>
+            <label style={{ margin: 0, fontSize: 13 }}>🎙 대표 성우</label>
+            <select style={{ flex: 1 }} value={defaultVoiceId || ""}
+              onChange={(e) => setDefaultVoice(e.target.value)}>
+              <option value="">개별 설정</option>
+              {voices.map((v) => <option key={v.voiceId} value={v.voiceId}>{v.name}</option>)}
+            </select>
+          </div>
+
+          <button onClick={() => setAllFlipH(!allFlipped)} disabled={scenes.length === 0}
+            title="모든 장면을 한 번에 좌우반전">
+            ⇋ 전체 좌우반전 {allFlipped ? "✓" : ""}
+          </button>
+
           {ttsAllBusy ? (
             <Loading text="모든 장면 TTS 생성 중…" />
           ) : (
@@ -131,6 +153,14 @@ export default function EditorScreen() {
 
       {/* 중 */}
       <div className="pane center">
+        {checked.size > 0 && (
+          <div className="row" style={{ alignItems: "center", gap: 8, marginBottom: 8, position: "sticky", top: 0, zIndex: 2, background: "var(--bg,#14141b)", padding: "4px 0" }}>
+            <span className="muted" style={{ fontSize: 13 }}>{checked.size}개 선택됨</span>
+            <span style={{ flex: 1 }} />
+            <button className="ghost" onClick={() => setChecked(new Set())}>선택 해제</button>
+            <button className="ghost danger" onClick={onDeleteChecked}>🗑 선택 삭제</button>
+          </div>
+        )}
         {scenes.length === 0 ? (
           <div className="empty">
             장면이 없습니다.
@@ -139,12 +169,15 @@ export default function EditorScreen() {
             </div>
           </div>
         ) : (
-          scenes.map((sc) => (
-            <div key={sc.sceneNumber}>
-              <SceneCard scene={sc} />
-              <button className="add-line" onClick={() => addSceneAfter(sc.sceneNumber)}>+ 여기에 장면 추가</button>
-            </div>
-          ))
+          <>
+            <button className="add-line" onClick={addSceneAtStart}>+ 여기에 장면 추가</button>
+            {scenes.map((sc) => (
+              <div key={sc.sceneNumber}>
+                <SceneCard scene={sc} checked={checked.has(sc.sceneNumber)} onToggleCheck={() => toggleCheck(sc.sceneNumber)} />
+                <button className="add-line" onClick={() => addSceneAfter(sc.sceneNumber)}>+ 여기에 장면 추가</button>
+              </div>
+            ))}
+          </>
         )}
       </div>
 
