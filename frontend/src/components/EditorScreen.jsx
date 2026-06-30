@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { exportDraft } from "../api/endpoints.js";
 import { useStore } from "../store/useStore.js";
@@ -39,13 +39,27 @@ export default function EditorScreen() {
   const [exportErr, setExportErr] = useState("");
   const [ttsAllBusy, setTtsAllBusy] = useState(false);
   const [checked, setChecked] = useState(() => new Set()); // 다중삭제 체크
+  const anchorRef = useRef(null); // Shift 범위 선택 기준점(직전 체크한 장면)
 
-  const toggleCheck = (sceneNumber) =>
+  const toggleCheck = (sceneNumber, shiftKey) => {
     setChecked((prev) => {
       const next = new Set(prev);
+      if (shiftKey && anchorRef.current != null) {
+        // 기준점~현재 사이 범위 전체 선택(기준점은 그대로 유지)
+        const a = scenes.findIndex((s) => s.sceneNumber === anchorRef.current);
+        const b = scenes.findIndex((s) => s.sceneNumber === sceneNumber);
+        if (a !== -1 && b !== -1) {
+          const [lo, hi] = a < b ? [a, b] : [b, a];
+          for (let i = lo; i <= hi; i += 1) next.add(scenes[i].sceneNumber);
+          return next;
+        }
+      }
       next.has(sceneNumber) ? next.delete(sceneNumber) : next.add(sceneNumber);
       return next;
     });
+    // 기준점은 '일반 클릭'에서만 갱신 — 쉬프트 클릭은 기준점을 안 옮김
+    if (!shiftKey) anchorRef.current = sceneNumber;
+  };
   const onDeleteChecked = () => {
     if (checked.size === 0) return;
     deleteScenes([...checked]);
@@ -173,7 +187,7 @@ export default function EditorScreen() {
             <button className="add-line" onClick={addSceneAtStart}>+ 여기에 장면 추가</button>
             {scenes.map((sc) => (
               <div key={sc.sceneNumber}>
-                <SceneCard scene={sc} checked={checked.has(sc.sceneNumber)} onToggleCheck={() => toggleCheck(sc.sceneNumber)} />
+                <SceneCard scene={sc} checked={checked.has(sc.sceneNumber)} onToggleCheck={(shift) => toggleCheck(sc.sceneNumber, shift)} />
                 <button className="add-line" onClick={() => addSceneAfter(sc.sceneNumber)}>+ 여기에 장면 추가</button>
               </div>
             ))}

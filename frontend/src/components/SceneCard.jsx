@@ -132,8 +132,9 @@ export default function SceneCard({ scene, checked = false, onToggleCheck }) {
   return (
     <div className={`scene-card${selected ? " selected" : ""}`} onClick={() => selectScene(scene.sceneNumber)}>
       <div className="head">
-        <input type="checkbox" style={{ width: "auto", margin: "0 4px 0 0" }} checked={checked}
-          title="선택(다중 삭제)" onClick={(e) => e.stopPropagation()} onChange={() => onToggleCheck?.()} />
+        <input type="checkbox" style={{ width: 22, height: 22, margin: "0 8px 0 0", cursor: "pointer", flex: "none" }} checked={checked} readOnly
+          title="선택(다중 삭제). Shift+클릭으로 범위 선택"
+          onClick={(e) => { e.stopPropagation(); onToggleCheck?.(e.shiftKey); }} />
         <span className="num">장면 {scene.sceneNumber}</span>
         <span className="spacer" />
         <button className="ghost" style={{ fontSize: 12 }} title="길이를 TTS에 맞춤"
