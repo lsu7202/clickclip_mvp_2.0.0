@@ -10,7 +10,7 @@ import ScenePreview from "./ScenePreview.jsx";
 import SceneCard, { runSceneTts } from "./SceneCard.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import BottomDock from "./BottomDock.jsx";
-import CaptionTrack from "./CaptionTrack.jsx";
+import FullPreview from "./FullPreview.jsx";
 import Loading from "./Loading.jsx";
 import SceneScrubber from "./SceneScrubber.jsx";
 
@@ -31,6 +31,11 @@ export default function EditorScreen() {
   const setDefaultVoice = useStore((s) => s.setDefaultVoice);
   const deleteScenes = useStore((s) => s.deleteScenes);
   const setAllFlipH = useStore((s) => s.setAllFlipH);
+  const resetAll = useStore((s) => s.resetAll);
+  const originalVolume = useStore((s) => s.originalVolume);
+  const ttsVolume = useStore((s) => s.ttsVolume);
+  const setOriginalVolume = useStore((s) => s.setOriginalVolume);
+  const setTtsVolume = useStore((s) => s.setTtsVolume);
   const voices = useVoices();
   useAutoTranslate();
 
@@ -38,6 +43,8 @@ export default function EditorScreen() {
   const [exportResult, setExportResult] = useState(null);
   const [exportErr, setExportErr] = useState("");
   const [ttsAllBusy, setTtsAllBusy] = useState(false);
+  const [exportWarns, setExportWarns] = useState(null); // 내보내기 사전 검증 경고
+  const [previewing, setPreviewing] = useState(false); // 전체 미리보기 재생 중
   const [checked, setChecked] = useState(() => new Set()); // 다중삭제 체크
   const anchorRef = useRef(null); // Shift 범위 선택 기준점(직전 체크한 장면)
 
@@ -70,11 +77,30 @@ export default function EditorScreen() {
   const total = totalDurationUs(scenes);
   const allFlipped = scenes.length > 0 && scenes.every((sc) => sc.flipH);
 
-  const onExport = async () => {
+  // 내보내기 사전 검증: 빈 미디어 / TTS 미생성 장면 경고
+  const validateExport = () => {
+    const noMedia = scenes.filter((sc) => !sc.media).map((sc) => sc.sceneNumber);
+    const noTts = scenes
+      .filter((sc) => sc.subtitle1Lines?.some((l) => l.ttsText?.trim()) && !sc.sceneTts)
+      .map((sc) => sc.sceneNumber);
+    const warns = [];
+    if (noMedia.length) warns.push(`장면 ${noMedia.join(", ")} — 미디어가 없습니다 (빈 화면으로 출력)`);
+    if (noTts.length) warns.push(`장면 ${noTts.join(", ")} — 나레이션 자막은 있는데 TTS 미생성`);
+    return warns;
+  };
+
+  const onExport = () => {
+    const warns = validateExport();
+    if (warns.length) { setExportWarns(warns); return; }
+    doExport();
+  };
+
+  const doExport = async () => {
+    setExportWarns(null);
     setExportErr("");
     setExporting(true);
     try {
-      const res = await exportDraft({ title, language, templateId, scenes, captions });
+      const res = await exportDraft({ title, language, templateId, scenes, captions, originalVolume, ttsVolume });
       setExportResult(res);
     } catch (e) {
       setExportErr(e?.response?.data?.error || e.message || "내보내기 실패");
@@ -112,15 +138,26 @@ export default function EditorScreen() {
       <div className="pane left">
         <div className="topbar">
           <button className="ghost" onClick={() => setStep("setup")}>← 설정</button>
+          <button className="ghost" style={{ marginLeft: 6 }} disabled={scenes.length === 0}
+            onClick={() => setPreviewing((p) => !p)}>
+            {previewing ? "⏹ 정지" : "▶ 전체 미리보기"}
+          </button>
+          <button className="ghost danger" style={{ marginLeft: 6 }} title="현재 작업을 모두 지우고 처음부터"
+            onClick={() => {
+              if (window.confirm("현재 작업을 모두 지우고 새 작업을 시작할까요? (되돌릴 수 없음)")) {
+                resetAll();
+                useStore.temporal.getState().clear();
+              }
+            }}>🗑 새 작업</button>
           <span className="total" style={{ marginLeft: "auto" }}>총 길이 {fmtUs(total)}</span>
         </div>
-        {selected ? (
+        {previewing ? (
+          <FullPreview onEnd={() => setPreviewing(false)} />
+        ) : selected ? (
           selected.media?.durationUs != null
             ? <SceneScrubber key={selected.sceneNumber} scene={selected} />
             : <ScenePreview scene={selected} />
         ) : <div className="empty">장면을 선택하세요</div>}
-
-        <CaptionTrack />
 
         <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
           {/* 대표 성우: 선택하면 전 장면 적용 + 이후 새 장면 기본 */}
@@ -137,6 +174,22 @@ export default function EditorScreen() {
             title="모든 장면을 한 번에 좌우반전">
             ⇋ 전체 좌우반전 {allFlipped ? "✓" : ""}
           </button>
+
+          {/* 전역 볼륨(전체 장면 공통, export 반영) */}
+          <div className="row" style={{ alignItems: "center", gap: 6 }}>
+            <label style={{ margin: 0, fontSize: 12, width: 62 }}>🔊 원본</label>
+            <input type="range" min="0" max="100" style={{ flex: 1 }}
+              value={Math.round(originalVolume * 100)}
+              onChange={(e) => setOriginalVolume(e.target.value / 100)} />
+            <span className="muted" style={{ fontSize: 11, width: 34, textAlign: "right" }}>{Math.round(originalVolume * 100)}%</span>
+          </div>
+          <div className="row" style={{ alignItems: "center", gap: 6 }}>
+            <label style={{ margin: 0, fontSize: 12, width: 62 }}>🎙 TTS</label>
+            <input type="range" min="0" max="100" style={{ flex: 1 }}
+              value={Math.round(ttsVolume * 100)}
+              onChange={(e) => setTtsVolume(e.target.value / 100)} />
+            <span className="muted" style={{ fontSize: 11, width: 34, textAlign: "right" }}>{Math.round(ttsVolume * 100)}%</span>
+          </div>
 
           {ttsAllBusy ? (
             <Loading text="모든 장면 TTS 생성 중…" />
@@ -201,6 +254,22 @@ export default function EditorScreen() {
       </div>
 
       <BottomDock />
+
+      {/* 내보내기 사전 검증 모달 */}
+      {exportWarns && (
+        <div className="modal-backdrop" onClick={() => setExportWarns(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>내보내기 전 확인</h3>
+            {exportWarns.map((w, i) => (
+              <div key={i} style={{ padding: "6px 0", borderBottom: "1px dashed var(--line, #3a3a48)", fontSize: 13 }}>⚠️ {w}</div>
+            ))}
+            <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+              <button onClick={() => setExportWarns(null)}>돌아가서 수정</button>
+              <button className="primary" onClick={doExport}>무시하고 내보내기</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

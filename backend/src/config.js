@@ -22,6 +22,8 @@ export const config = {
   // TTS 진짜 무음은 -80dB 미만(디지털 무음)이라 보수적으로 -60dB → 말끝 감쇠 보존.
   ttsTrimSilence: (process.env.TTS_TRIM_SILENCE || "true") !== "false",
   ttsSilenceThresholdDb: parseInt(process.env.TTS_SILENCE_THRESHOLD_DB || "-60", 10),
+  // TTS 기본 음량 배율(파일에 굽기 — 미리듣기/export 공통). 피크 -8dB라 1.5배 안전.
+  ttsGain: parseFloat(process.env.TTS_GAIN || "1.5"),
 
   // 보이스맵(ai/backend 공유)
   typecastVoices: jsonEnv("TYPECAST_VOICES", []),

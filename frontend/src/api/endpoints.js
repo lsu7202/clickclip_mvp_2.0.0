@@ -44,12 +44,15 @@ export const getSamples = () => api.get("/samples").then((r) => r.data.samples);
 export const getStyles = () => api.get("/styles").then((r) => r.data.styles);
 export const getVoices = () => api.get("/voices").then((r) => r.data.voices);
 
-export const startVideoAnalysis = ({ video, language, targetSceneNumber, applySubtitle }) => {
+export const startVideoAnalysis = ({ video, language, targetSceneNumber, wantCaptions, wantCommentary, commentaryStyle, commentaryStyleText }) => {
   const fd = new FormData();
   fd.append("video", video);
   fd.append("language", language);
   fd.append("target_scene_number", String(targetSceneNumber));
-  fd.append("apply_subtitle", String(applySubtitle));
+  fd.append("want_captions", String(wantCaptions));
+  fd.append("want_commentary", String(wantCommentary));
+  fd.append("commentary_style", commentaryStyle || "docu");
+  if (commentaryStyleText) fd.append("commentary_style_text", commentaryStyleText);
   return api.post("/video-analysis", fd).then((r) => r.data.jobId);
 };
 
@@ -58,5 +61,5 @@ export const getJob = (jobId) => api.get(`/jobs/${jobId}`).then((r) => r.data);
 export const translateTexts = (texts, target) =>
   api.post("/translate", { texts, target }).then((r) => r.data.translations);
 
-export const exportDraft = ({ title, language, templateId, scenes, captions }) =>
-  api.post("/export", { title, language, templateId, scenes, captions }).then((r) => r.data);
+export const exportDraft = ({ title, language, templateId, scenes, captions, originalVolume, ttsVolume }) =>
+  api.post("/export", { title, language, templateId, scenes, captions, originalVolume, ttsVolume }).then((r) => r.data);

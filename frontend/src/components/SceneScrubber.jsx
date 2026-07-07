@@ -14,6 +14,7 @@ export default function SceneScrubber({ scene }) {
   const templateId = useStore((s) => s.templateId);
   const insertFreezeScene = useStore((s) => s.insertFreezeScene);
   const splitSceneAtTimeUs = useStore((s) => s.splitSceneAtTimeUs);
+  const originalVolume = useStore((s) => s.originalVolume);
 
   const media = scene.media;
   const winStart = mediaSrcStart(media);          // 파일 기준 윈도우 시작(us)
@@ -79,6 +80,7 @@ export default function SceneScrubber({ scene }) {
     if (playing) { v.pause(); setPlaying(false); return; }
     if (v.currentTime * 1e6 >= winEnd - 20_000) v.currentTime = winStart / 1e6;
     v.muted = !!scene.muted; // 재생 시 원본 소리(장면 음소거 🔇면 무음)
+    v.volume = originalVolume; // 전역 원본 볼륨 반영
     v.play(); setPlaying(true);
   };
   const onTimeUpdate = () => {

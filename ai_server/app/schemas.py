@@ -92,6 +92,10 @@ class TranslateResp(BaseModel):
 class VideoAnalysisReq(BaseModel):
     video_base64: str
     language: Language = "ko"
+    want_captions: bool = True  # 원본 자막(STT+교정)
+    want_commentary: bool = False  # 해설 자막(전체 맥락 생성, 표시 전용)
+    commentary_style: str = "docu"  # docu|fun|story|reaction|custom
+    commentary_style_text: Optional[str] = None  # custom일 때 말투 예시
 
 
 class Shot(BaseModel):
@@ -100,7 +104,7 @@ class Shot(BaseModel):
 
 
 class Caption(BaseModel):
-    # 자막2 = 원본 소스 타임라인 기준 캡션(장면에 묶이지 않음)
+    # 원본 자막 = 원본 소스 타임라인 기준 캡션(장면에 묶이지 않음)
     start_us: int
     end_us: int
     text: str
@@ -110,3 +114,4 @@ class Caption(BaseModel):
 class VideoAnalysisResp(BaseModel):
     shots: list[Shot]
     captions: list[Caption]
+    commentary: list[list[str]]  # 샷 순서 1:1 — 샷별 해설 줄 목록(빈 배열 허용)

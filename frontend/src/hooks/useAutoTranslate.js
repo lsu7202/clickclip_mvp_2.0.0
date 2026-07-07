@@ -19,10 +19,11 @@ export function useAutoTranslate() {
 
   useEffect(() => {
     if (!enabled) return;
-    // 모든 자막 텍스트 수집(자막1 + 자막2 캡션 트랙)
+    // 모든 자막 텍스트 수집(나레이션 + 원본 자막 + 해설 자막)
     const texts = new Set();
     for (const sc of scenes) {
       for (const ln of sc.subtitle1Lines || []) if (ln.text?.trim()) texts.add(ln.text);
+      for (const ln of sc.commentaryLines || []) if (ln.text?.trim()) texts.add(ln.text);
     }
     for (const c of captions) if (c.text?.trim()) texts.add(c.text);
     const missing = [...texts].filter((t) => cache[`${target}:${t}`] === undefined);

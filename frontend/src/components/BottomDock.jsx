@@ -16,6 +16,14 @@ export default function BottomDock() {
   const setTrEnabled = useTranslationStore((s) => s.setEnabled);
   const setTrTarget = useTranslationStore((s) => s.setTarget);
 
+  // 자동저장 표시(스토어가 localStorage 저장 후 이벤트 발행)
+  const [savedAt, setSavedAt] = useState(null);
+  useEffect(() => {
+    const fn = () => setSavedAt(new Date());
+    window.addEventListener("clickclip:saved", fn);
+    return () => window.removeEventListener("clickclip:saved", fn);
+  }, []);
+
   return (
     <div className="bottom-dock">
       <button className="ghost" disabled={pastStates.length === 0} onClick={() => undo()} title="실행취소">↶</button>
@@ -31,6 +39,12 @@ export default function BottomDock() {
           <option value="en">EN</option>
           <option value="ja">日本語</option>
         </select>
+      )}
+      {savedAt && (
+        <span title="자동저장됨(localStorage) — 새로고침해도 이어서 작업"
+          style={{ fontSize: 11, color: "var(--muted, #9a9aab)", marginLeft: "auto" }}>
+          💾 {savedAt.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}
+        </span>
       )}
     </div>
   );

@@ -7,6 +7,7 @@ export function renumber(scenes) {
     ...sc,
     sceneNumber: i + 1,
     subtitle1Lines: sc.subtitle1Lines.map((ln, j) => ({ ...ln, lineNumber: j + 1 })),
+    commentaryLines: (sc.commentaryLines || []).map((ln, j) => ({ ...ln, lineNumber: j + 1 })),
   }));
 }
 
@@ -71,6 +72,7 @@ export function emptyScene(voiceId, fitToTts = true) {
     muted: false,
     fitToTts,
     subtitle1Lines: [],
+    commentaryLines: [],
     durationUs: 0,
   };
 }

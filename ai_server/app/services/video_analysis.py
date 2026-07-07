@@ -139,28 +139,51 @@ def _split_into_lines(words: list[dict]) -> list[dict]:
     return lines
 
 
-def process(video_base64: str, language: str) -> dict:
+def process(
+    video_base64: str,
+    language: str,
+    want_captions: bool = True,
+    want_commentary: bool = False,
+    commentary_style: str = "docu",
+    commentary_style_text: str | None = None,
+) -> dict:
     video_bytes = base64.b64decode(video_base64)
 
     # 1) VI 샷 → 연속 정규화(미디어 컷 구조, 장면 사이 공백 제거)
     shots = _make_contiguous(video_intel.detect_shots(video_bytes))
 
     # 2) STT 단어(실제 타임스탬프) → 3) 줄로 분할(실제 STT 시간)
+    #    (해설만 요청해도 전사는 맥락·이름 그라운딩용으로 항상 수행)
     words = _stt_words(video_bytes, shots)
     lines = _split_into_lines(words)
 
-    # 4) Gemini 줄별 텍스트 교정(1:1, 시간·줄경계 불변)
-    corrected = gemini.correct_lines(video_bytes, lines, language) if lines else []
-    want_ko = language != "ko"
-    captions = [
-        {
-            "start_us": ln["start_us"],
-            "end_us": ln["end_us"],
-            "text": corrected[i]["text"],
-            "ko": corrected[i]["ko"] if want_ko else None,
-        }
-        for i, ln in enumerate(lines)
-    ]
+    # Gemini 업로드 1회 → 교정·해설이 재사용
+    video_file = gemini.upload_video(video_bytes) if ((want_captions and lines) or want_commentary) else None
+
+    # 4) 원본 자막: Gemini 줄별 텍스트 교정(1:1, 시간·줄경계 불변)
+    captions = []
+    if want_captions:
+        corrected = gemini.correct_lines(video_file, lines, language) if lines else []
+        want_ko = language != "ko"
+        captions = [
+            {
+                "start_us": ln["start_us"],
+                "end_us": ln["end_us"],
+                "text": corrected[i]["text"],
+                "ko": corrected[i]["ko"] if want_ko else None,
+            }
+            for i, ln in enumerate(lines)
+        ]
+
+    # 해설 자막: 전체 맥락 1회 생성 → 샷별 줄 배분(표시 전용)
+    commentary = [[] for _ in shots]
+    if want_commentary:
+        transcript = "\n".join(
+            (captions[i]["text"] if captions else ln["text"]) for i, ln in enumerate(lines)
+        ) if lines else ""
+        commentary = gemini.generate_commentary(
+            video_file, shots, transcript, commentary_style, commentary_style_text, language
+        )
 
     # 겹침 제거(STT 윈도우 경계 아티팩트): 종료를 다음 시작으로 클램프
     captions.sort(key=lambda c: c["start_us"])
@@ -180,4 +203,5 @@ def process(video_base64: str, language: str) -> dict:
     return {
         "shots": [{"start_us": s, "end_us": e} for s, e in shots],
         "captions": captions,
+        "commentary": commentary,  # 샷 순서와 1:1, 샷별 해설 줄 목록
     }

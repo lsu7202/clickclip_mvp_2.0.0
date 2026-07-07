@@ -105,7 +105,7 @@ function buildCaptionSegments(scenes, starts, captions) {
   return out.filter((s) => s.durationUs > 0);
 }
 
-export function buildDraft(scenes, { templateId, framePath, folderName, captions = [] }) {
+export function buildDraft(scenes, { templateId, framePath, folderName, captions = [], originalVolume = 1, ttsVolume = 1 }) {
   const { info, meta } = loadSkeleton();
   const draft = clone(info);
   const CW = config.canvasWidth; // 1080
@@ -206,7 +206,7 @@ export function buildDraft(scenes, { templateId, framePath, folderName, captions
           durationUs: durUs,
           sourceUs: isVideo ? Math.min(usedUs, durUs) : durUs,
           sourceStartUs: srcStart,
-          volume: isVideo ? (scene.muted ? 0 : 1) : undefined,
+          volume: isVideo ? (scene.muted ? 0 : originalVolume) : undefined, // 전역 원본 볼륨
           clipOverride: {
             scale: { x: cover, y: cover },
             transform: { x: 0, y: 0 },
@@ -295,12 +295,26 @@ export function buildDraft(scenes, { templateId, framePath, folderName, captions
     });
     if (s1.length) newTracks.push(buildTextTrack(s1, baseY));
 
-    // 자막2 (살짝 아래로 분리 배치) — 원본 소스 타임라인 캡션을 '소스→출력' 매핑으로 투영.
+    // 원본 자막 (살짝 아래로 분리 배치) — 원본 소스 타임라인 캡션을 '소스→출력' 매핑으로 투영.
     // 각 장면(미디어 윈도우)이 원본 [origStart,origEnd]를 출력 [outStart,+used]로 매핑.
     // 캡션은 소스 시간 기준이라, 장면을 자르거나 사이에 끼워도 자기 footage만 따라간다.
     // 한 캡션이 출력상 맞닿은 여러 창에 걸치면 하나로 합쳐 끊김 없이 표시.
     const s2 = buildCaptionSegments(scenes, starts, captions);
     if (s2.length) newTracks.push(buildTextTrack(s2, baseY + 0.12));
+
+    // 해설 자막(장면 소유, 표시 전용) — 장면 로컬 시간, 장면 길이로 클램프
+    const s3 = [];
+    scenes.forEach((scene, i) => {
+      const sceneEnd = sceneDurationUs(scene);
+      (scene.commentaryLines || []).forEach((ln) => {
+        if (!ln.text?.trim()) return;
+        const st = Math.max(0, Math.min(ln.startUs, sceneEnd));
+        const en = Math.min(ln.endUs, sceneEnd);
+        if (en <= st) return;
+        s3.push({ text: ln.text, startUs: starts[i] + st, durationUs: en - st });
+      });
+    });
+    if (s3.length) newTracks.push(buildTextTrack(s3, baseY + 0.24));
   }
 
   // ---- 오디오 트랙(자막1 TTS) — 장면당 합친 오디오 1세그먼트 ----
@@ -322,7 +336,7 @@ export function buildDraft(scenes, { templateId, framePath, folderName, captions
           startUs: starts[i],
           durationUs: a.durationUs,
           sourceUs: a.durationUs,
-          volume: 1,
+          volume: ttsVolume, // 전역 TTS 볼륨
         })
       );
     });

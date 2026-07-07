@@ -8,6 +8,7 @@ import {
   mediaSrcStart,
   newSubtitle1Line,
   renumber,
+  sceneDurationUs,
 } from "./sceneOps.js";
 
 const initialAssetPanel = {
@@ -29,19 +30,33 @@ const mapScenes = (set, get, fn) =>
     return { scenes };
   });
 
+// ---- 자동저장(localStorage): 새로고침/재시작 후 이어서 작업 ----
+const SAVE_KEY = "clickclip.project.v1";
+function loadSavedProject() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+const saved = loadSavedProject() || {};
+
 export const useStore = create(
   temporal(
     (set, get) => ({
-      // ---- AppState ----
-      step: "setup",
-      language: "ko",
-      title: "",
-      templateId: null,
-      scriptText: "",
-      scenes: [],
-      captions: [], // 자막2 = 원본 소스 타임라인 캡션 트랙(장면과 분리)
-      defaultVoiceId: null, // 대표 성우(설정 시 전 장면 적용 + 새 장면 기본)
-      selectedSceneNumber: null,
+      // ---- AppState (자동저장본이 있으면 이어서 복원) ----
+      step: saved.step || "setup",
+      language: saved.language || "ko",
+      title: saved.title || "",
+      templateId: saved.templateId ?? null,
+      scriptText: saved.scriptText || "",
+      scenes: saved.scenes || [],
+      captions: saved.captions || [], // 자막2 = 원본 소스 타임라인 캡션 트랙(장면과 분리)
+      defaultVoiceId: saved.defaultVoiceId ?? null, // 대표 성우(설정 시 전 장면 적용 + 새 장면 기본)
+      originalVolume: saved.originalVolume ?? 1, // 전역 원본 소리 볼륨(0~1)
+      ttsVolume: saved.ttsVolume ?? 1, // 전역 TTS 볼륨(0~1)
+      selectedSceneNumber: saved.selectedSceneNumber ?? null,
       assetPanel: initialAssetPanel,
       jobs: [],
 
@@ -98,6 +113,28 @@ export const useStore = create(
       // 전체 장면 좌우반전 일괄 설정
       setAllFlipH: (value) =>
         mapScenes(set, get, (scenes) => scenes.map((sc) => ({ ...sc, flipH: value }))),
+      // 전역 볼륨(원본/TTS) — export와 미리보기에 공통 적용
+      setOriginalVolume: (v) => set({ originalVolume: v }),
+      setTtsVolume: (v) => set({ ttsVolume: v }),
+      // 장면 순서 이동(위/아래 한 칸)
+      moveScene: (sceneNumber, dir) =>
+        mapScenes(set, get, (scenes) => {
+          const i = scenes.findIndex((sc) => sc.sceneNumber === sceneNumber);
+          const j = i + dir;
+          if (i < 0 || j < 0 || j >= scenes.length) return scenes;
+          const copy = [...scenes];
+          [copy[i], copy[j]] = [copy[j], copy[i]];
+          return copy;
+        }),
+      // 장면 복제(바로 아래 삽입). 파일은 공유(불변 에셋이라 안전)
+      duplicateScene: (sceneNumber) =>
+        mapScenes(set, get, (scenes) => {
+          const i = scenes.findIndex((sc) => sc.sceneNumber === sceneNumber);
+          if (i < 0) return scenes;
+          const copy = [...scenes];
+          copy.splice(i + 1, 0, JSON.parse(JSON.stringify(scenes[i])));
+          return copy;
+        }),
       // 수동 체류시간 override. us=null → 자동(도출값)으로 리셋.
       setSceneDuration: (sceneNumber, us) =>
         get().updateScene(sceneNumber, { manualDurationUs: us }),
@@ -195,7 +232,7 @@ export const useStore = create(
           return copy;
         }),
 
-      // ---- 자막2 = 원본 소스 타임라인 캡션 트랙(장면과 분리) ----
+      // ---- 원본 자막 = 원본 소스 타임라인 캡션 트랙(장면과 분리) ----
       // caption: { id, sourceId, startUs, endUs, text, ko } — 소스 시간 기준. 장면 편집과 직교.
       addCaptions: (list) =>
         set((s) => ({ captions: [...s.captions, ...(list || [])] })),
@@ -205,6 +242,29 @@ export const useStore = create(
         set((s) => ({ captions: s.captions.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
       removeCaption: (id) =>
         set((s) => ({ captions: s.captions.filter((c) => c.id !== id) })),
+
+      // ---- 해설 자막(장면 소유, 표시 전용·무TTS, 장면 로컬 타이밍) ----
+      _mapCommentary: (sceneNumber, fn) =>
+        mapScenes(set, get, (scenes) =>
+          scenes.map((sc) =>
+            sc.sceneNumber === sceneNumber
+              ? { ...sc, commentaryLines: fn(sc.commentaryLines || [], sc) }
+              : sc
+          )
+        ),
+      addCommentaryLine: (sceneNumber) =>
+        get()._mapCommentary(sceneNumber, (lines) => {
+          const prevEnd = lines.length ? lines[lines.length - 1].endUs : 0;
+          return [...lines, { lineNumber: 0, text: "", startUs: prevEnd, endUs: prevEnd + 2_000_000 }];
+        }),
+      updateCommentary: (sceneNumber, lineNumber, patch) =>
+        get()._mapCommentary(sceneNumber, (lines) =>
+          lines.map((ln) => (ln.lineNumber === lineNumber ? { ...ln, ...patch } : ln))
+        ),
+      removeCommentaryLine: (sceneNumber, lineNumber) =>
+        get()._mapCommentary(sceneNumber, (lines) =>
+          lines.filter((ln) => ln.lineNumber !== lineNumber)
+        ),
 
       // ---- 장면 분리/병합(§4.5) ----
       // 자막1 기준 분리: lineIndex 이후 줄들을 새 장면(빈 미디어)으로 내림
@@ -238,12 +298,17 @@ export const useStore = create(
           if (boundary <= srcStart || boundary >= srcEnd) return scenes;
           const oStart = sc.media.origStartUs;
           const oBoundary = oStart != null ? oStart + atUs : null;
+          // 해설 자막(장면 로컬)도 컷 기준으로 분배: 시작이 atUs 전이면 위, 이후면 아래(-atUs 리베이스)
+          const com = sc.commentaryLines || [];
           const upper = {
             ...sc,
             media: {
               ...sc.media, sourceStartUs: srcStart, sourceEndUs: boundary,
               ...(oBoundary != null ? { origEndUs: oBoundary } : {}),
             },
+            commentaryLines: com
+              .filter((ln) => ln.startUs < atUs)
+              .map((ln) => ({ ...ln, endUs: Math.min(ln.endUs, atUs) })),
           };
           const lower = {
             ...emptyScene(sc.voiceId, sc.fitToTts),
@@ -252,6 +317,9 @@ export const useStore = create(
               ...sc.media, sourceStartUs: boundary, sourceEndUs: srcEnd,
               ...(oBoundary != null ? { origStartUs: oBoundary } : {}),
             },
+            commentaryLines: com
+              .filter((ln) => ln.startUs >= atUs)
+              .map((ln) => ({ ...ln, startUs: ln.startUs - atUs, endUs: Math.max(0, ln.endUs - atUs) })),
           };
           const copy = [...scenes];
           copy.splice(idx, 1, upper, lower);
@@ -307,10 +375,17 @@ export const useStore = create(
             };
           }
 
+          const upUsed = sceneDurationUs(up); // 아래 장면 해설의 로컬 시간 리베이스 기준
           const merged = {
             ...up,
             media,
             subtitle1Lines: [...up.subtitle1Lines, ...cur.subtitle1Lines],
+            commentaryLines: [
+              ...(up.commentaryLines || []),
+              ...(cur.commentaryLines || []).map((ln) => ({
+                ...ln, startUs: ln.startUs + upUsed, endUs: ln.endUs + upUsed,
+              })),
+            ],
           };
           const copy = [...scenes];
           copy.splice(idx - 1, 2, merged);
@@ -344,6 +419,8 @@ export const useStore = create(
           scenes: [],
           captions: [],
           defaultVoiceId: null,
+          originalVolume: 1,
+          ttsVolume: 1,
           selectedSceneNumber: null,
           jobs: [],
           assetPanel: initialAssetPanel,
@@ -355,6 +432,8 @@ export const useStore = create(
         scenes: s.scenes,
         captions: s.captions,
         defaultVoiceId: s.defaultVoiceId,
+        originalVolume: s.originalVolume,
+        ttsVolume: s.ttsVolume,
         title: s.title,
         templateId: s.templateId,
         language: s.language,
@@ -367,3 +446,30 @@ export const useStore = create(
 );
 
 export const useTemporal = () => useStore.temporal;
+
+// ---- 자동저장 구독(디바운스). 실패(쿼터 등)는 조용히 무시. ----
+let _saveTimer = null;
+useStore.subscribe((s) => {
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(
+        SAVE_KEY,
+        JSON.stringify({
+          step: s.step,
+          language: s.language,
+          title: s.title,
+          templateId: s.templateId,
+          scriptText: s.scriptText,
+          scenes: s.scenes,
+          captions: s.captions,
+          defaultVoiceId: s.defaultVoiceId,
+          originalVolume: s.originalVolume,
+          ttsVolume: s.ttsVolume,
+          selectedSceneNumber: s.selectedSceneNumber,
+        })
+      );
+      window.dispatchEvent(new CustomEvent("clickclip:saved"));
+    } catch { /* 저장 실패는 치명적이지 않음 */ }
+  }, 600);
+});

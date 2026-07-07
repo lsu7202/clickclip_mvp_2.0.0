@@ -16,7 +16,7 @@ const router = Router();
 router.post(
   "/export",
   asyncHandler(async (req, res) => {
-    const { title, language, templateId, scenes, captions } = req.body;
+    const { title, language, templateId, scenes, captions, originalVolume, ttsVolume } = req.body;
 
     const folderName = resolveFolderName(config.capcutDraftRoot, title);
     const draftDir = path.join(config.capcutDraftRoot, folderName); // 컨테이너 쓰기 경로
@@ -34,6 +34,8 @@ router.post(
       framePath,
       folderName,
       captions: captions || [],
+      originalVolume: originalVolume ?? 1,
+      ttsVolume: ttsVolume ?? 1,
     });
 
     fs.writeFileSync(path.join(draftDir, "draft_info.json"), JSON.stringify(draft));

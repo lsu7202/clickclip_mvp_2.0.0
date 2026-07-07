@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { generateSceneTts, selectSoundEffect } from "../api/endpoints.js";
 import { workspaceUrl } from "../api/client.js";
 import { useStore } from "../store/useStore.js";
+import { usePlaybackStore } from "../store/playbackStore.js";
 import { lineDurationUs, sceneDurationUs } from "../store/sceneOps.js";
 import { useSoundEffects, useVoices } from "../hooks/useResources.js";
 import { fmtUs } from "../util/format.js";
@@ -54,7 +55,7 @@ function LineRow({ scene, line }) {
         <textarea
           rows={1}
           value={line.text}
-          placeholder="자막1 (내레이션)"
+          placeholder="나레이션 자막 (TTS)"
           onChange={(e) => updateLineText(scene.sceneNumber, line.lineNumber, e.target.value)}
           onKeyDown={(e) => { onKeyDown(e); onKeyDownEmpty(e); }}
         />
@@ -88,7 +89,31 @@ export default function SceneCard({ scene, checked = false, onToggleCheck }) {
   const {
     selectScene, toggleMuted, toggleFitToTts, setSceneVoice, deleteScene,
     addLine, mergeSceneUp, splitSceneAtLine, setSceneDuration, setSceneSfx, toggleFlipH,
+    moveScene, duplicateScene,
+    addCaption, updateCaption, removeCaption,
+    addCommentaryLine, updateCommentary, removeCommentaryLine,
   } = useStore();
+  const captions = useStore((s) => s.captions);
+  // 이 장면에 표시되는 원본 자막(소스 윈도우 겹침, 소스 시간순)
+  const origStart = scene.media?.origStartUs ?? 0;
+  const sceneCaps = scene.media?.origSourceId
+    ? captions
+        .filter(
+          (c) => c.sourceId === scene.media.origSourceId &&
+            c.startUs < (scene.media.origEndUs ?? Infinity) &&
+            c.endUs > origStart
+        )
+        .sort((a, b) => a.startUs - b.startUs)
+    : [];
+  // 재생 중 '지금 발화 중' 캡션(노래방식)
+  const pbSourceId = usePlaybackStore((s) => s.sourceId);
+  const pbTimeUs = usePlaybackStore((s) => s.sourceTimeUs);
+  const pbPlaying = usePlaybackStore((s) => s.playing);
+  const isNowCap = (c) =>
+    pbPlaying && c.sourceId === pbSourceId && pbTimeUs != null &&
+    pbTimeUs >= c.startUs && pbTimeUs < c.endUs;
+  const [showCaps, setShowCaps] = useState(false);
+  const [showCom, setShowCom] = useState(false);
   const [ttsAllBusy, setTtsAllBusy] = useState(false);
   const [sfxBusy, setSfxBusy] = useState(false);
   const language = useStore((s) => s.language);
@@ -96,6 +121,13 @@ export default function SceneCard({ scene, checked = false, onToggleCheck }) {
 
   const selected = scene.sceneNumber === selectedSceneNumber;
   const dur = sceneDurationUs(scene);
+
+  // 전체 미리보기 재생 중 현재 장면이면 카드가 보이게 스크롤
+  const cardRef = useRef(null);
+  const playingNow = usePlaybackStore((s) => s.playing && s.sceneNumber === scene.sceneNumber);
+  useEffect(() => {
+    if (playingNow) cardRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [playingNow]);
 
   // 장면 시작 효과음: 라이브러리(my_sound_effect)에서 선택 → workspace 복사
   const onSfxPick = async (name) => {
@@ -130,12 +162,18 @@ export default function SceneCard({ scene, checked = false, onToggleCheck }) {
   };
 
   return (
-    <div className={`scene-card${selected ? " selected" : ""}`} onClick={() => selectScene(scene.sceneNumber)}>
+    <div ref={cardRef} className={`scene-card${selected ? " selected" : ""}`} onClick={() => selectScene(scene.sceneNumber)}>
       <div className="head">
         <input type="checkbox" style={{ width: 22, height: 22, margin: "0 8px 0 0", cursor: "pointer", flex: "none" }} checked={checked} readOnly
           title="선택(다중 삭제). Shift+클릭으로 범위 선택"
           onClick={(e) => { e.stopPropagation(); onToggleCheck?.(e.shiftKey); }} />
         <span className="num">장면 {scene.sceneNumber}</span>
+        <button className="ghost" style={{ fontSize: 12, padding: "1px 5px" }} title="위로 이동"
+          onClick={(e) => { e.stopPropagation(); moveScene(scene.sceneNumber, -1); }}>↑</button>
+        <button className="ghost" style={{ fontSize: 12, padding: "1px 5px" }} title="아래로 이동"
+          onClick={(e) => { e.stopPropagation(); moveScene(scene.sceneNumber, 1); }}>↓</button>
+        <button className="ghost" style={{ fontSize: 12, padding: "1px 5px" }} title="장면 복제(바로 아래)"
+          onClick={(e) => { e.stopPropagation(); duplicateScene(scene.sceneNumber); }}>⧉</button>
         <span className="spacer" />
         <button className="ghost" style={{ fontSize: 12 }} title="길이를 TTS에 맞춤"
           onClick={(e) => { e.stopPropagation(); toggleFitToTts(scene.sceneNumber); }}>
@@ -189,7 +227,77 @@ export default function SceneCard({ scene, checked = false, onToggleCheck }) {
               )}
             </div>
           ))}
-          <button className="add-line" onClick={(e) => { e.stopPropagation(); addLine(scene.sceneNumber); }}>＋ 자막 추가</button>
+          <button className="add-line" onClick={(e) => { e.stopPropagation(); addLine(scene.sceneNumber); }}>＋ 나레이션 자막 추가</button>
+
+          {/* 원본 자막(소스 앵커 캡션) — 이 장면 창에 걸친 것들. 시간은 장면 기준 초로 표시 */}
+          {scene.media?.origSourceId && (
+            <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 8 }}>
+              <button className="ghost" style={{ fontSize: 12 }} onClick={() => setShowCaps((v) => !v)}>
+                💬 원본 자막 {showCaps ? "▾" : `▸ (${sceneCaps.length})`}
+              </button>
+              {showCaps && (
+                <div style={{ marginTop: 4 }}>
+                  {sceneCaps.map((c) => (
+                    <div key={c.id} className="sub2-edit" style={{
+                      marginBottom: 6,
+                      ...(isNowCap(c) ? { background: "rgba(124,92,255,.16)", outline: "1px solid var(--accent, #7c5cff)", borderRadius: 6 } : {}),
+                    }}>
+                      <input className="sub2-text" value={c.text} placeholder="원본 자막"
+                        onChange={(e) => updateCaption(c.id, { text: e.target.value })} />
+                      {c.ko && c.ko !== c.text && <div className="sub2-ko">🇰🇷 {c.ko}</div>}
+                      <TranslatedLine text={c.text} />
+                      <div className="sub2-time">
+                        <input type="number" step="0.1" value={((c.startUs - origStart) / 1e6).toFixed(1)}
+                          onChange={(e) => updateCaption(c.id, { startUs: origStart + Math.round(parseFloat(e.target.value || 0) * 1e6) })} />
+                        <span>~</span>
+                        <input type="number" step="0.1" value={((c.endUs - origStart) / 1e6).toFixed(1)}
+                          onChange={(e) => updateCaption(c.id, { endUs: origStart + Math.round(parseFloat(e.target.value || 0) * 1e6) })} />
+                        <span>s</span>
+                        <button className="ghost danger" style={{ fontSize: 12, padding: "2px 6px" }}
+                          onClick={() => removeCaption(c.id)}>✕</button>
+                      </div>
+                    </div>
+                  ))}
+                  <button className="add-line" style={{ fontSize: 11 }}
+                    onClick={() => addCaption({
+                      id: `cap-${Date.now()}-${Math.round(Math.random() * 1e6)}`,
+                      sourceId: scene.media.origSourceId,
+                      startUs: origStart, endUs: origStart + 2_000_000, text: "", ko: null,
+                    })}>＋ 원본 자막 추가</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 해설 자막(장면 소유, 표시 전용) */}
+          <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 6 }}>
+            <button className="ghost" style={{ fontSize: 12 }} onClick={() => setShowCom((v) => !v)}>
+              📝 해설 자막 {showCom ? "▾" : `▸ (${(scene.commentaryLines || []).length})`}
+            </button>
+            {showCom && (
+              <div style={{ marginTop: 4 }}>
+                {(scene.commentaryLines || []).map((ln) => (
+                  <div key={ln.lineNumber} className="sub2-edit" style={{ marginBottom: 6 }}>
+                    <input className="sub2-text" value={ln.text} placeholder="해설 자막"
+                      onChange={(e) => updateCommentary(scene.sceneNumber, ln.lineNumber, { text: e.target.value })} />
+                    <TranslatedLine text={ln.text} />
+                    <div className="sub2-time">
+                      <input type="number" step="0.1" min="0" value={(ln.startUs / 1e6).toFixed(1)}
+                        onChange={(e) => updateCommentary(scene.sceneNumber, ln.lineNumber, { startUs: Math.round(parseFloat(e.target.value || 0) * 1e6) })} />
+                      <span>~</span>
+                      <input type="number" step="0.1" min="0" value={(ln.endUs / 1e6).toFixed(1)}
+                        onChange={(e) => updateCommentary(scene.sceneNumber, ln.lineNumber, { endUs: Math.round(parseFloat(e.target.value || 0) * 1e6) })} />
+                      <span>s</span>
+                      <button className="ghost danger" style={{ fontSize: 12, padding: "2px 6px" }}
+                        onClick={() => removeCommentaryLine(scene.sceneNumber, ln.lineNumber)}>✕</button>
+                    </div>
+                  </div>
+                ))}
+                <button className="add-line" style={{ fontSize: 11 }}
+                  onClick={() => addCommentaryLine(scene.sceneNumber)}>＋ 해설 자막 추가</button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

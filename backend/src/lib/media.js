@@ -14,15 +14,15 @@ export async function extractFrame(srcAbs, atUs, outAbs) {
   ]);
 }
 
-// 오디오를 [startUs,endUs] 구간으로 정확히 트림 + PTS 0 리셋.
+// 오디오를 [startUs,endUs] 구간으로 정확히 트림 + PTS 0 리셋 (+옵션 게인).
 // char 타이밍의 발화 구간으로 앞뒤 무음 제거(dB 추정보다 정확, 줄 시간과 자동 정렬).
-export async function trimAudioRange(srcAbs, startUs, endUs, outAbs) {
+export async function trimAudioRange(srcAbs, startUs, endUs, outAbs, gain = 1) {
   const s = (Math.max(0, startUs) / 1_000_000).toFixed(3);
   const e = (endUs / 1_000_000).toFixed(3);
-  await execFileP("ffmpeg", [
-    "-y", "-v", "error", "-i", srcAbs,
-    "-af", `atrim=start=${s}:end=${e},asetpts=PTS-STARTPTS`, outAbs,
-  ]);
+  let af = `atrim=start=${s}:end=${e},asetpts=PTS-STARTPTS`;
+  // TTS 기본 음량 증폭(파일에 굽기 → 미리듣기/export 공통) + 리미터로 피크 클리핑 방지
+  if (gain !== 1) af += `,volume=${gain},alimiter=limit=0.95:level=false`;
+  await execFileP("ffmpeg", ["-y", "-v", "error", "-i", srcAbs, "-af", af, outAbs]);
 }
 
 // 오디오 포함 컨테이너의 길이(µs). probe()는 비디오 없는 파일에 null이라 별도 제공.

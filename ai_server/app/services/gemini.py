@@ -89,6 +89,11 @@ def _mmss(us: int) -> str:
     return f"{s // 60}:{s % 60:02d}"
 
 
+def upload_video(video_bytes: bytes):
+    """Gemini Files API 업로드(공개 API) — 교정·해설이 같은 업로드를 재사용."""
+    return _upload_video(video_bytes)
+
+
 def _upload_video(video_bytes: bytes, mime_type: str = "video/mp4"):
     """Gemini Files API 업로드 후 ACTIVE 될 때까지 대기."""
     client = _get_client()
@@ -111,8 +116,8 @@ def _upload_video(video_bytes: bytes, mime_type: str = "video/mp4"):
     raise RuntimeError("gemini_video_processing_timeout")
 
 
-def correct_lines(video_bytes: bytes, lines: list[dict], language: str) -> list[dict]:
-    """원본 영상(화면+소리) + STT로 미리 끊은 '자막 줄 목록' → 줄별 텍스트 교정(1:1).
+def correct_lines(video_file, lines: list[dict], language: str) -> list[dict]:
+    """원본 영상(업로드된 파일 핸들) + STT로 미리 끊은 '자막 줄 목록' → 줄별 텍스트 교정(1:1).
 
     줄 경계와 시간은 STT가 이미 확정(여기서 바꾸지 않음). Gemini는 각 줄의 '텍스트만'
     화면 맥락까지 활용해 교정한다. 줄을 합치거나 더 쪼개지 않는다(입력 N줄 = 출력 N줄).
@@ -146,8 +151,7 @@ def correct_lines(video_bytes: bytes, lines: list[dict], language: str) -> list[
         f"{ko_rule}\n"
         '출력 JSON: {"lines":[{"index":0,"text":"교정문","ko":"한국어"}, ...]}'
     )
-    file = _upload_video(video_bytes)
-    data = _generate_json(prompt, parts=[file])
+    data = _generate_json(prompt, parts=[video_file])
     out = [{"text": l["text"], "ko": None} for l in lines]  # 폴백 = STT 원문
     for item in data.get("lines", []):
         i = item.get("index")
@@ -155,4 +159,69 @@ def correct_lines(video_bytes: bytes, lines: list[dict], language: str) -> list[
             t = (item.get("text") or "").strip()
             k = (item.get("ko") or "").strip()
             out[i] = {"text": t or lines[i]["text"], "ko": (k or None) if want_ko else None}
+    return out
+
+
+# ---- 해설 자막: 전체 맥락 기반, 샷별 배분(표시 전용) ----
+_COMMENT_STYLES = {
+    "docu": (
+        "차분하고 신뢰감 있는 다큐멘터리 설명체. 존댓말('~합니다'). 감탄사·이모지 금지.",
+        "경찰이 면허증을 요구하지만, 상황은 예상과 다르게 흘러갑니다.",
+    ),
+    "fun": (
+        "유튜브 예능 자막톤. 반말+감탄+가벼운 과장, 'ㅋㅋ' 허용. 짧고 리드미컬하게.",
+        "아니 ㅋㅋ 면허 달라니까 나이를 맞혀보라는데??",
+    ),
+    "story": (
+        "긴장감 있는 스토리텔링체. 호흡을 끊고 반전을 강조. '그런데 그 순간—' 같은 연결.",
+        "그런데 그 순간 — 시스템에 뜬 건 3년 전 사망 기록.",
+    ),
+    "reaction": (
+        "시청자에게 말을 거는 리액션톤. '여러분', '보이시나요' 등 청자 지향.",
+        "여러분 이거 보이시나요? 지금 그냥 도망갑니다.",
+    ),
+}
+
+
+def generate_commentary(
+    video_file, shots: list[tuple[int, int]], transcript: str,
+    style: str, style_text: str | None, language: str,
+) -> list[list[str]]:
+    """원본 영상 전체 + 샷 타임라인 → 샷별 해설 자막(전체 맥락 기반 한 편의 대본).
+
+    반환: shots와 같은 길이의 list[list[str]] (샷별 해설 줄들, 빈 배열 허용).
+    """
+    if not shots:
+        return []
+    lang = _LANG_NAME.get(language, "한국어")
+    tone, example = _COMMENT_STYLES.get(style, _COMMENT_STYLES["docu"])
+    if style == "custom" and style_text:
+        tone, example = "아래 예시 문장들의 말투·어조·리듬을 최대한 모사하라.", style_text
+    timeline = "\n".join(
+        f"[{i}] {_mmss(s)}~{_mmss(e)} (길이 {round((e - s) / 1e6, 1)}초, 최대 {max(8, int((e - s) / 1e6 * 6))}자)"
+        for i, (s, e) in enumerate(shots)
+    )
+    ctx = f"\n[원본 발화 전사(맥락 참고)]\n{transcript}\n" if transcript else ""
+    prompt = (
+        "주어진 영상을 화면과 소리 모두로 분석한다.\n"
+        "먼저 영상 전체에서 무슨 일이 벌어지는지 파악하라(등장인물, 사건 흐름, 반전).\n"
+        "그다음 전체를 관통하는 '한 편의 해설 대본'을 쓰되, 아래 샷 타임라인의 인덱스별로 배분하라.\n\n"
+        f"[샷 타임라인]\n{timeline}\n{ctx}\n"
+        f"[말투]\n{tone}\n예시: {example}\n\n"
+        "규칙:\n"
+        f"- 해설 언어: {lang}.\n"
+        "- 각 샷의 해설은 표기된 '최대 글자수'를 절대 넘지 마라(1~2줄, 줄당 짧게). 못 지키면 그 샷은 비워라.\n"
+        "- 길이 2초 미만인 샷은 원칙적으로 해설을 비워라(빈 배열) — 그 내용은 인접한 긴 샷에 합쳐라.\n"
+        "- 첫 샷은 시선을 잡는 훅, 마지막 샷은 마무리 멘트.\n"
+        "- '이 장면에서는' 같은 반복 금지. 앞 샷 내용을 이어받아 하나의 대본처럼 연결하라.\n"
+        "- 화면/음성에 실제로 보이고 들리는 것만 말하라. 인물 이름은 전사에 나온 것만. 사실 추측 금지.\n"
+        "- 원본 발화가 꽉 찬 샷은 해설을 비워도 된다(빈 배열).\n"
+        '출력 JSON: {"shots":[{"index":0,"lines":["해설1","해설2"]}, ...]}'
+    )
+    data = _generate_json(prompt, parts=[video_file])
+    out = [[] for _ in shots]
+    for item in data.get("shots", []):
+        i = item.get("index")
+        if isinstance(i, int) and 0 <= i < len(shots):
+            out[i] = [s.strip() for s in item.get("lines", []) if s and s.strip()]
     return out

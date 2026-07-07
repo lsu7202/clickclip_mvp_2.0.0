@@ -7,13 +7,14 @@ export default function ScenePreview({ scene }) {
   const captions = useStore((s) => s.captions);
   const media = scene?.media;
   const sub1 = scene?.subtitle1Lines?.[0]?.text;
-  // 자막2: 이 장면의 원본 소스 윈도우[origStart,origEnd]에 겹치는 첫 캡션(소스 앵커)
+  // 원본 자막: 이 장면의 원본 소스 윈도우[origStart,origEnd]에 겹치는 첫 캡션(소스 앵커)
   const sub2 = media?.origSourceId
     ? captions.find(
         (c) => c.sourceId === media.origSourceId &&
           c.startUs < (media.origEndUs ?? Infinity) && c.endUs > (media.origStartUs ?? 0)
       )?.text
     : undefined;
+  const com = scene?.commentaryLines?.[0]?.text; // 해설 자막(첫 줄)
 
   const flip = scene?.flipH ? { transform: "scaleX(-1)" } : undefined;
   return (
@@ -32,6 +33,7 @@ export default function ScenePreview({ scene }) {
       )}
       {sub1 && <div className="preview-sub s1">{sub1}</div>}
       {sub2 && <div className="preview-sub s2">{sub2}</div>}
+      {com && <div className="preview-sub s2" style={{ bottom: "26%", color: "#ffd28a" }}>{com}</div>}
     </div>
   );
 }

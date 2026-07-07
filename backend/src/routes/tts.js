@@ -44,14 +44,16 @@ router.post(
       return r;
     });
 
-    // 트림: 발화 구간 [첫 글자 시작, 마지막 글자 끝]로 atrim → 줄 시간 -firstStart 오프셋
+    // 트림(+기본 게인): 발화 구간 [첫 글자, 마지막 글자]로 atrim → 줄 시간 -firstStart 오프셋
     let durationUs = ai.durationUs;
-    if (config.ttsTrimSilence && total > 0 && tc[total - 1].endUs > tc[0].startUs) {
-      const firstStart = tc[0].startUs;
-      const lastEnd = tc[total - 1].endUs;
+    const doTrim = config.ttsTrimSilence && total > 0 && tc[total - 1].endUs > tc[0].startUs;
+    if (doTrim || config.ttsGain !== 1) {
+      // 트림 조건이 안 되면 전체 구간 유지 + 게인만 적용
+      const firstStart = doTrim ? tc[0].startUs : 0;
+      const lastEnd = doTrim ? tc[total - 1].endUs : ai.durationUs;
       const tmpRel = `tts/scene-${sceneNumber ?? "x"}-${uuid()}.t.${ext}`;
       try {
-        await trimAudioRange(absPath(relPath), firstStart, lastEnd, absPath(tmpRel));
+        await trimAudioRange(absPath(relPath), firstStart, lastEnd, absPath(tmpRel), config.ttsGain);
         const d = await probeDurationUs(absPath(tmpRel));
         if (d && d > 0) {
           await fs.rename(absPath(tmpRel), absPath(relPath));
