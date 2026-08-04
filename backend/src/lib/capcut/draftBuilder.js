@@ -53,6 +53,18 @@ function trackWithSegments(info, type) {
   return cands.sort((a, b) => b.segments.length - a.segments.length)[0] || null;
 }
 
+// 장면 인/아웃 애니메이션 풀(animations.json — 사용자가 CapCut에서 골라둔 것 추출본).
+// 있으면 export 시 각 장면 미디어에 랜덤 적용. 없으면 애니메이션 없이(기존 동작).
+function loadAnimationPool() {
+  try {
+    const p = path.join(config.capcutTemplateDir, "animations.json");
+    const arr = JSON.parse(fs.readFileSync(p, "utf-8"));
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
 // 정규화 cover 배율(스케일 1=contain 가정)
 function coverScale(w, h, cw, ch) {
   if (!w || !h) return 1;
@@ -105,11 +117,11 @@ function buildCaptionSegments(scenes, starts, captions) {
   return out.filter((s) => s.durationUs > 0);
 }
 
-export function buildDraft(scenes, { templateId, framePath, folderName, captions = [], originalVolume = 1, ttsVolume = 1 }) {
+export function buildDraft(scenes, { templateId, framePath, folderName, captions = [], originalVolume = 1, ttsVolume = 1, canvasWidth, canvasHeight }) {
   const { info, meta } = loadSkeleton();
   const draft = clone(info);
-  const CW = config.canvasWidth; // 1080
-  const CH = config.canvasHeight; // 1920
+  const CW = canvasWidth || config.canvasWidth; // 쇼츠 1080 / 롱폼 1920
+  const CH = canvasHeight || config.canvasHeight; // 쇼츠 1920 / 롱폼 1080
 
   const { starts, totalUs } = sceneStartsUs(scenes);
 
@@ -137,17 +149,31 @@ export function buildDraft(scenes, { templateId, framePath, folderName, captions
   const audioSegTpl = audioTrackTpl?.segments[0];
 
   // 세그먼트의 extra_material_refs 번들을 통째로 복제 → 새 ref id 배열 반환
-  function cloneBundle(tplSeg) {
+  // skipBuckets: 복제에서 제외할 버킷(예: 랜덤 애니메이션을 직접 넣을 때 material_animations)
+  function cloneBundle(tplSeg, skipBuckets = []) {
     const newRefs = [];
     for (const refId of tplSeg.extra_material_refs || []) {
       const [bucket, mat] = findMaterial(info, refId);
       if (!mat) continue;
+      if (skipBuckets.includes(bucket)) continue;
       const nm = clone(mat);
       nm.id = UID();
       push(bucket, nm);
       newRefs.push(nm.id);
     }
     return newRefs;
+  }
+
+  // 풀에서 랜덤 애니메이션 1개 → 세그먼트 길이에 맞춰 material_animations 엔트리 생성
+  const animPool = loadAnimationPool();
+  function makeRandomAnim(segDurUs) {
+    const src = animPool[Math.floor(Math.random() * animPool.length)];
+    const a = clone(src);
+    a.duration = Math.min(a.duration || 500000, segDurUs); // 짧은 장면 클램프
+    a.start = a.type === "out" ? Math.max(0, segDurUs - a.duration) : 0;
+    const entry = { id: UID(), type: "sticker_animation", animations: [a], multi_language_current: "none" };
+    push("material_animations", entry);
+    return entry.id;
   }
 
   // 1차 머티리얼 복제(+override)
@@ -196,7 +222,9 @@ export function buildDraft(scenes, { templateId, framePath, folderName, captions
         duration: isVideo ? fullUs : durUs,
         has_audio: !!scene.media.hasAudio,
       });
-      const refs = cloneBundle(mediaSegTpl);
+      // 애니메이션 풀이 있으면 템플릿의 빈 애니메이션 대신 랜덤 인/아웃 적용
+      const refs = cloneBundle(mediaSegTpl, animPool.length ? ["material_animations"] : []);
+      if (animPool.length) refs.push(makeRandomAnim(durUs));
       const cover = coverScale(scene.media.widthPx, scene.media.heightPx, CW, CH);
       track.segments.push(
         cloneSeg(mediaSegTpl, {

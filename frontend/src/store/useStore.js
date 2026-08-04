@@ -47,6 +47,10 @@ export const useStore = create(
     (set, get) => ({
       // ---- AppState (자동저장본이 있으면 이어서 복원) ----
       step: saved.step || "setup",
+      format: saved.format || "shorts", // shorts(9:16) | longform(16:9)
+      category: saved.category || "economy", // 롱폼 카테고리: economy|war|folktale
+      characters: saved.characters || [], // 롱폼 등장인물 시트 [{name, description, refLocalPath}]
+      imageStyle: saved.imageStyle || "illust", // 이미지 스타일 템플릿 키
       language: saved.language || "ko",
       title: saved.title || "",
       templateId: saved.templateId ?? null,
@@ -62,6 +66,17 @@ export const useStore = create(
 
       // ---- setup ----
       setStep: (step) => set({ step }),
+      setFormat: (format) => set({ format }),
+      setCategory: (category) => set({ category }),
+      setImageStyle: (imageStyle) => set({ imageStyle }),
+      // 롱폼 등장인물 시트(name 키)
+      setCharacters: (characters) => set({ characters }),
+      updateCharacter: (name, patch) =>
+        set((s) => ({
+          characters: s.characters.map((c) => (c.name === name ? { ...c, ...patch } : c)),
+        })),
+      removeCharacter: (name) =>
+        set((s) => ({ characters: s.characters.filter((c) => c.name !== name) })),
       setLanguage: (language) => set({ language }),
       setTitle: (title) => set({ title }),
       setTemplateId: (templateId) => set({ templateId }),
@@ -418,6 +433,10 @@ export const useStore = create(
           scriptText: "",
           scenes: [],
           captions: [],
+          format: "shorts",
+          category: "economy",
+          characters: [],
+          imageStyle: "illust",
           defaultVoiceId: null,
           originalVolume: 1,
           ttsVolume: 1,
@@ -431,6 +450,10 @@ export const useStore = create(
       partialize: (s) => ({
         scenes: s.scenes,
         captions: s.captions,
+        format: s.format,
+        category: s.category,
+        characters: s.characters,
+        imageStyle: s.imageStyle,
         defaultVoiceId: s.defaultVoiceId,
         originalVolume: s.originalVolume,
         ttsVolume: s.ttsVolume,
@@ -463,6 +486,10 @@ useStore.subscribe((s) => {
           scriptText: s.scriptText,
           scenes: s.scenes,
           captions: s.captions,
+          format: s.format,
+          category: s.category,
+          characters: s.characters,
+          imageStyle: s.imageStyle,
           defaultVoiceId: s.defaultVoiceId,
           originalVolume: s.originalVolume,
           ttsVolume: s.ttsVolume,

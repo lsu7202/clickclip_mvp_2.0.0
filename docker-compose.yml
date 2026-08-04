@@ -36,7 +36,7 @@ services:
     environment:
       - VITE_BACKEND_URL=${VITE_BACKEND_URL}
     ports:
-      - "5173:5173"
+      - "5273:5173" # 호스트 5273 (5173 충돌 회피) → 컨테이너 내부는 5173 유지
     volumes:
       - ./frontend:/app
       - /app/node_modules

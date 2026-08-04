@@ -20,7 +20,7 @@ def _sec_to_us(value) -> int:
     return int(round(float(value) * 1_000_000)) if value is not None else 0
 
 
-def synthesize(tts_text: str, voice_id: str, language: str) -> dict:
+def synthesize(tts_text: str, voice_id: str, language: str, speed: float | None = None) -> dict:
     # 빈 텍스트 / 발음 가능한 글자 없는 줄(문장부호·기호만)은 Typecast가 거부
     # → 호출 없이 빈 결과 반환.
     if not tts_text or not _PRONOUNCEABLE.search(tts_text):
@@ -35,7 +35,7 @@ def synthesize(tts_text: str, voice_id: str, language: str) -> dict:
         "granularity": "char",
         # 속도/포맷은 공식 스키마상 output 객체 안. (top-level 은 무시됨)
         "output": {
-            "audio_tempo": config.TTS_SPEED,      # 0.5~2.0
+            "audio_tempo": speed if speed is not None else config.TTS_SPEED,  # 0.5~2.0 (롱폼=1.0 등 요청별 오버라이드)
             "audio_format": config.TYPECAST_OUTPUT_FORMAT,
         },
     }

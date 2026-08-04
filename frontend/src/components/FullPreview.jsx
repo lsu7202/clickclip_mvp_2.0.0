@@ -14,6 +14,7 @@ export default function FullPreview({ onEnd }) {
   const templateId = useStore((s) => s.templateId);
   const originalVolume = useStore((s) => s.originalVolume);
   const ttsVolume = useStore((s) => s.ttsVolume);
+  const format = useStore((s) => s.format);
   const selectScene = useStore((s) => s.selectScene);
   const setPlayback = usePlaybackStore((s) => s.setPlayback);
   const resetPlayback = usePlaybackStore((s) => s.resetPlayback);
@@ -87,7 +88,7 @@ export default function FullPreview({ onEnd }) {
   const cover = { objectFit: "cover", width: "100%", height: "100%", transform: scene.flipH ? "scaleX(-1)" : undefined };
 
   return (
-    <div className="preview-frame" style={{ position: "relative" }}>
+    <div className="preview-frame" style={{ position: "relative", aspectRatio: format === "longform" ? "16/9" : "9/16" }}>
       {isVideo ? (
         <video ref={vref} key={`${media.localPath}-${idx}`} src={workspaceUrl(media.localPath)}
           style={cover} playsInline preload="auto"

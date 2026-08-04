@@ -17,8 +17,9 @@ export default function ScenePreview({ scene }) {
   const com = scene?.commentaryLines?.[0]?.text; // 해설 자막(첫 줄)
 
   const flip = scene?.flipH ? { transform: "scaleX(-1)" } : undefined;
+  const format = useStore((s) => s.format);
   return (
-    <div className="preview-frame">
+    <div className="preview-frame" style={{ aspectRatio: format === "longform" ? "16/9" : "9/16" }}>
       {media && media.durationUs != null ? (
         <video src={workspaceUrl(media.localPath)} style={flip} muted loop autoPlay playsInline />
       ) : media ? (

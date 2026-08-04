@@ -16,7 +16,7 @@ const router = Router();
 router.post(
   "/export",
   asyncHandler(async (req, res) => {
-    const { title, language, templateId, scenes, captions, originalVolume, ttsVolume } = req.body;
+    const { title, language, templateId, scenes, captions, originalVolume, ttsVolume, format } = req.body;
 
     const folderName = resolveFolderName(config.capcutDraftRoot, title);
     const draftDir = path.join(config.capcutDraftRoot, folderName); // 컨테이너 쓰기 경로
@@ -36,6 +36,9 @@ router.post(
       captions: captions || [],
       originalVolume: originalVolume ?? 1,
       ttsVolume: ttsVolume ?? 1,
+      // 프로젝트 형식별 캔버스: 롱폼=16:9, 쇼츠=9:16(기본)
+      canvasWidth: format === "longform" ? 1920 : config.canvasWidth,
+      canvasHeight: format === "longform" ? 1080 : config.canvasHeight,
     });
 
     fs.writeFileSync(path.join(draftDir, "draft_info.json"), JSON.stringify(draft));

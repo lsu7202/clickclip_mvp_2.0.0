@@ -15,5 +15,7 @@ def ai_media_generate(req: AiMediaReq) -> AiMediaResp:
         situation_text=req.situation_text,
         reference_name=req.reference_name,
         aspect_ratio=req.aspect_ratio,
+        reference_path=req.reference_path,
+        duration_s=req.duration_s,
     )
     return AiMediaResp(**result)

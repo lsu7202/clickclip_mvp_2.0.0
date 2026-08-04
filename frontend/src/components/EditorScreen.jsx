@@ -11,6 +11,7 @@ import SceneCard, { runSceneTts } from "./SceneCard.jsx";
 import AssetPanel from "./AssetPanel.jsx";
 import BottomDock from "./BottomDock.jsx";
 import FullPreview from "./FullPreview.jsx";
+import LongformPanel from "./LongformPanel.jsx";
 import Loading from "./Loading.jsx";
 import SceneScrubber from "./SceneScrubber.jsx";
 
@@ -32,6 +33,7 @@ export default function EditorScreen() {
   const deleteScenes = useStore((s) => s.deleteScenes);
   const setAllFlipH = useStore((s) => s.setAllFlipH);
   const resetAll = useStore((s) => s.resetAll);
+  const format = useStore((s) => s.format);
   const originalVolume = useStore((s) => s.originalVolume);
   const ttsVolume = useStore((s) => s.ttsVolume);
   const setOriginalVolume = useStore((s) => s.setOriginalVolume);
@@ -100,7 +102,7 @@ export default function EditorScreen() {
     setExportErr("");
     setExporting(true);
     try {
-      const res = await exportDraft({ title, language, templateId, scenes, captions, originalVolume, ttsVolume });
+      const res = await exportDraft({ title, language, templateId, scenes, captions, originalVolume, ttsVolume, format });
       setExportResult(res);
     } catch (e) {
       setExportErr(e?.response?.data?.error || e.message || "내보내기 실패");
@@ -116,7 +118,7 @@ export default function EditorScreen() {
     try {
       for (const sc of scenes) {
         try {
-          await runSceneTts(sc, voices, language, setSceneTts);
+          await runSceneTts(sc, voices, language, setSceneTts, format === "longform" ? 1.0 : null);
         } catch { /* 실패 장면은 건너뜀 */ }
       }
     } finally {
@@ -158,6 +160,8 @@ export default function EditorScreen() {
             ? <SceneScrubber key={selected.sceneNumber} scene={selected} />
             : <ScenePreview scene={selected} />
         ) : <div className="empty">장면을 선택하세요</div>}
+
+        {format === "longform" && <LongformPanel />}
 
         <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
           {/* 대표 성우: 선택하면 전 장면 적용 + 이후 새 장면 기본 */}

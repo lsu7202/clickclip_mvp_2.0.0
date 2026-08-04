@@ -84,6 +84,47 @@ router.post(
   })
 );
 
+// ---- 스톡 캐릭터 라이브러리 (resources/my_characters/<style>/<archetype>.png) ----
+// 스타일별 아키타입 레퍼런스를 1회 생성 후 캐싱 → 전 영상 재사용(채널 고정 출연진)
+const STOCK_DIR = process.env.MY_CHARACTERS_DIR || "/resources/my_characters";
+const stockPath = (style, archetype) =>
+  path.join(STOCK_DIR, path.basename(style), `${path.basename(archetype)}.png`);
+
+// POST /characters-stock/use — 라이브러리에 있으면 workspace로 복사해 반환, 없으면 404
+router.post(
+  "/characters-stock/use",
+  asyncHandler(async (req, res) => {
+    const { style, archetype } = req.body;
+    const src = stockPath(style || "", archetype || "");
+    let buf;
+    try {
+      buf = await fs.readFile(src);
+    } catch {
+      res.status(404).json({ error: "stock_not_found" });
+      return;
+    }
+    const relPath = `characters/${uuid()}.png`;
+    await saveBuffer(relPath, buf);
+    res.json({ localPath: relPath });
+  })
+);
+
+// POST /characters-stock/save — 생성된 레퍼런스(workspace)를 라이브러리에 저장(덮어쓰기)
+router.post(
+  "/characters-stock/save",
+  asyncHandler(async (req, res) => {
+    const { style, archetype, localPath } = req.body;
+    if (!style || !archetype || !localPath) {
+      res.status(400).json({ error: "style_archetype_localPath_required" });
+      return;
+    }
+    const dst = stockPath(style, archetype);
+    await fs.mkdir(path.dirname(dst), { recursive: true });
+    await fs.copyFile(absPath(localPath), dst);
+    res.json({ saved: true });
+  })
+);
+
 // POST /assets/extract-frame — 동영상 한 프레임을 PNG로 추출 → 프리즈 장면용 이미지 Asset
 router.post(
   "/assets/extract-frame",

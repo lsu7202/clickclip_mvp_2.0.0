@@ -15,6 +15,7 @@ export default function SceneScrubber({ scene }) {
   const insertFreezeScene = useStore((s) => s.insertFreezeScene);
   const splitSceneAtTimeUs = useStore((s) => s.splitSceneAtTimeUs);
   const originalVolume = useStore((s) => s.originalVolume);
+  const format = useStore((s) => s.format);
 
   const media = scene.media;
   const winStart = mediaSrcStart(media);          // 파일 기준 윈도우 시작(us)
@@ -130,7 +131,7 @@ export default function SceneScrubber({ scene }) {
 
   return (
     <div className="scene-scrubber">
-      <div className="preview-frame" style={{ position: "relative" }}>
+      <div className="preview-frame" style={{ position: "relative", aspectRatio: format === "longform" ? "16/9" : "9/16" }}>
         <video ref={vref} src={url} muted playsInline style={cover} onTimeUpdate={onTimeUpdate} />
         {templateId && <img className="overlay" src={resUrl(`/res/templates/${templateId}`)} alt="" />}
         <div className="scrub-meta">{fmt(atUs)}s {frame != null ? `· f${frame}` : ""}</div>

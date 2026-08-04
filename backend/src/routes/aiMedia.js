@@ -12,13 +12,15 @@ const router = Router();
 router.post(
   "/ai-media/generate",
   asyncHandler(async (req, res) => {
-    const { mediaType, styleId, situationText, referenceName, aspectRatio } = req.body;
+    const { mediaType, styleId, situationText, referenceName, referencePath, aspectRatio, durationS } = req.body;
     const ai = await aiPost("/ai-media/generate", {
       mediaType,
       styleId: styleId ?? null,
       situationText,
       referenceName: referenceName ?? null,
+      referencePath: referencePath ?? null, // workspace 상대경로(캐릭터 레퍼런스/i2v)
       aspectRatio: aspectRatio ?? null,
+      durationS: durationS ?? null, // 영상 길이(초)
     });
 
     const isVideo = ai.sourceType === "ai_video";

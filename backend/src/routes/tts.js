@@ -19,14 +19,15 @@ const nonSpaceLen = (s) => (s || "").replace(/\s/g, "").length;
 router.post(
   "/tts",
   asyncHandler(async (req, res) => {
-    const { lines = [], voiceId, language, sceneNumber } = req.body;
-    const joined = lines.map((l) => l.ttsText || "").join(" ").trim();
+    const { lines = [], voiceId, language, sceneNumber, speed } = req.body;
+    // 공백 정규화: 중복 공백 제거(파싱은 어절 경계에서만 분리 → join(" ")로 원문 복원)
+    const joined = lines.map((l) => (l.ttsText || "").trim()).join(" ").replace(/\s+/g, " ").trim();
     if (!joined) {
       res.json({ localPath: null, durationUs: 0, lineRanges: [] });
       return;
     }
 
-    const ai = await aiPost("/tts", { ttsText: joined, voiceId, language });
+    const ai = await aiPost("/tts", { ttsText: joined, voiceId, language, speed: speed ?? null });
     const ext = ai.audioFormat || "wav";
     const relPath = `tts/scene-${sceneNumber ?? "x"}-${uuid()}.${ext}`;
     await saveBase64(relPath, ai.audioBase64);

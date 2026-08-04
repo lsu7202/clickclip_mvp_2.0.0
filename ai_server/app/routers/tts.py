@@ -8,7 +8,7 @@ router = APIRouter(tags=["tts"])
 
 @router.post("/tts", response_model=TtsResp)
 def tts(req: TtsReq) -> TtsResp:
-    result = typecast.synthesize(req.tts_text, req.voice_id, req.language)
+    result = typecast.synthesize(req.tts_text, req.voice_id, req.language, req.speed)
     return TtsResp(
         audio_base64=result["audio_base64"],
         audio_format=result["audio_format"],

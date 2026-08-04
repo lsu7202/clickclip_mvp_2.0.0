@@ -14,8 +14,27 @@ import fal_client
 
 from app import config
 
-_VIDEO_RESOLUTION = "1080p"
-_VIDEO_DURATION = "5"
+def _video_duration_arg(model: str, want_s: int | None):
+    """요청 길이(초)를 모델별 허용값으로 스냅. LTX=6~20 짝수 int, wan="5"|"10" 문자열."""
+    want = want_s or config.FAL_VIDEO_DURATION
+    if "ltx" in model:
+        return min(20, max(6, round(want / 2) * 2))
+    return "10" if want > 5 else "5"
+
+# 모델별 크기 인자: flux-2(klein) 계열은 image_size{w,h}, flux-pro 계열은 aspect_ratio
+_ASPECT_SIZES = {
+    "16:9": {"width": 1280, "height": 720},
+    "9:16": {"width": 720, "height": 1280},
+    "1:1": {"width": 1024, "height": 1024},
+}
+
+
+def _size_args(model: str, aspect_ratio: str | None) -> dict:
+    if not aspect_ratio:
+        return {}
+    if "flux-2" in model:
+        return {"image_size": _ASPECT_SIZES.get(aspect_ratio, _ASPECT_SIZES["16:9"])}
+    return {"aspect_ratio": aspect_ratio}
 
 
 def _build_prompt(style_prompt: str | None, situation_text: str) -> str:
@@ -24,8 +43,12 @@ def _build_prompt(style_prompt: str | None, situation_text: str) -> str:
     return situation_text
 
 
-def _reference_url(reference_name: str) -> str:
-    path = os.path.join(config.MY_SAMPLES_DIR, reference_name)
+def _reference_url(reference_name: str | None, reference_path: str | None = None) -> str:
+    # reference_path: workspace 상대경로(캐릭터 레퍼런스/장면 이미지 i2v) 우선
+    if reference_path:
+        path = os.path.join("/workspace", reference_path.lstrip("/"))
+    else:
+        path = os.path.join(config.MY_SAMPLES_DIR, reference_name)
     return fal_client.upload_file(path)
 
 
@@ -35,22 +58,22 @@ def generate(
     situation_text: str,
     reference_name: str | None,
     aspect_ratio: str | None,
+    reference_path: str | None = None,
+    duration_s: int | None = None,
 ) -> dict:
     os.environ["FAL_KEY"] = config.FAL_KEY  # fal_client 는 env 에서 읽음
     prompt = _build_prompt(style_prompt, situation_text)
-    has_ref = bool(reference_name)
+    has_ref = bool(reference_name or reference_path)
 
     if media_type == "image":
         if has_ref:
             model = config.FAL_MODEL_IMAGE_REF
-            args = {"prompt": prompt, "image_urls": [_reference_url(reference_name)]}
-            if aspect_ratio:
-                args["aspect_ratio"] = aspect_ratio
+            args = {"prompt": prompt, "image_urls": [_reference_url(reference_name, reference_path)]}
+            args.update(_size_args(model, aspect_ratio))
         else:
             model = config.FAL_MODEL_IMAGE_T2I
             args = {"prompt": prompt}
-            if aspect_ratio:
-                args["aspect_ratio"] = aspect_ratio
+            args.update(_size_args(model, aspect_ratio))
         result = fal_client.run(model, arguments=args)
         img = (result.get("images") or [{}])[0]
         return {
@@ -67,17 +90,17 @@ def generate(
         model = config.FAL_MODEL_VIDEO_I2V
         args = {
             "prompt": prompt,
-            "image_url": _reference_url(reference_name),
-            "resolution": _VIDEO_RESOLUTION,
-            "duration": _VIDEO_DURATION,
+            "image_url": _reference_url(reference_name, reference_path),
+            "resolution": config.FAL_VIDEO_RESOLUTION,
+            "duration": _video_duration_arg(model, duration_s),
         }
         # I2V: aspect_ratio 없음(입력 이미지 비율을 따름)
     else:
         model = config.FAL_MODEL_VIDEO_T2V
         args = {
             "prompt": prompt,
-            "resolution": _VIDEO_RESOLUTION,
-            "duration": _VIDEO_DURATION,
+            "resolution": config.FAL_VIDEO_RESOLUTION,
+            "duration": _video_duration_arg(model, duration_s),
         }
         if aspect_ratio:
             args["aspect_ratio"] = aspect_ratio

@@ -1,23 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 
-import { generateSceneTts, selectSoundEffect } from "../api/endpoints.js";
+import { generateAiMedia, generateSceneTts, selectSoundEffect } from "../api/endpoints.js";
 import { workspaceUrl } from "../api/client.js";
 import { useStore } from "../store/useStore.js";
 import { usePlaybackStore } from "../store/playbackStore.js";
 import { lineDurationUs, sceneDurationUs } from "../store/sceneOps.js";
 import { useSoundEffects, useVoices } from "../hooks/useResources.js";
+import { styleP } from "../config/imageStyles.js";
 import { fmtUs } from "../util/format.js";
 import { playAudio } from "../util/audio.js";
 import { Spinner } from "./Loading.jsx";
 import TranslatedLine from "./TranslatedLine.jsx";
 
 // 장면의 자막1 줄들을 합쳐 1회 합성(자연스러운 발화). 성우는 장면 단위.
-export async function runSceneTts(scene, voices, language, setSceneTts) {
+export async function runSceneTts(scene, voices, language, setSceneTts, speed = null) {
   const voiceId = scene.voiceId || voices[0]?.voiceId;
   if (!voiceId) return;
   const lines = scene.subtitle1Lines.map((l) => ({ lineNumber: l.lineNumber, ttsText: l.ttsText || "" }));
   if (!lines.some((l) => l.ttsText.trim())) return;
-  const res = await generateSceneTts({ sceneNumber: scene.sceneNumber, lines, voiceId, language });
+  const res = await generateSceneTts({ sceneNumber: scene.sceneNumber, lines, voiceId, language, speed });
   setSceneTts(scene.sceneNumber, { localPath: res.localPath, durationUs: res.durationUs }, res.lineRanges);
 }
 
@@ -114,8 +115,51 @@ export default function SceneCard({ scene, checked = false, onToggleCheck }) {
     pbTimeUs >= c.startUs && pbTimeUs < c.endUs;
   const [showCaps, setShowCaps] = useState(false);
   const [showCom, setShowCom] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [imgBusy, setImgBusy] = useState(false);
+  const [i2vBusy, setI2vBusy] = useState(false);
   const [ttsAllBusy, setTtsAllBusy] = useState(false);
   const [sfxBusy, setSfxBusy] = useState(false);
+  const format = useStore((s) => s.format);
+  const storeCharacters = useStore((s) => s.characters);
+  const updateSceneStore = useStore((s) => s.updateScene);
+  const setSceneMedia = useStore((s) => s.setSceneMedia);
+  const isLongform = format === "longform";
+
+  // 롱폼: 이 장면 이미지 생성(캐릭터 등장 시 레퍼런스 edit로 동일 인물 유지)
+  const onGenImage = async () => {
+    if (!scene.imagePrompt?.trim()) return;
+    setImgBusy(true);
+    try {
+      const ref = storeCharacters.find((c) => (scene.characterNames || []).includes(c.name) && c.refLocalPath);
+      const asset = await generateAiMedia({
+        mediaType: "image",
+        situationText: `${scene.imagePrompt}, ${styleP(useStore.getState().imageStyle)}`,
+        referencePath: ref?.refLocalPath ?? null,
+        aspectRatio: "16:9",
+      });
+      setSceneMedia(scene.sceneNumber, asset);
+    } catch (e) {
+      alert(`이미지 생성 실패: ${e?.response?.data?.error || e.message}`);
+    } finally { setImgBusy(false); }
+  };
+
+  // 롱폼: 이 장면 이미지 → 영상(i2v, fal Wan). 선택한 장면만.
+  const onI2v = async () => {
+    if (!scene.media?.localPath || scene.media.durationUs != null) return;
+    setI2vBusy(true);
+    try {
+      const asset = await generateAiMedia({
+        mediaType: "video",
+        situationText: scene.imagePrompt?.trim() || "Animate this illustration naturally with subtle motion and gentle camera movement.",
+        referencePath: scene.media.localPath,
+        durationS: Math.ceil(sceneDurationUs(scene) / 1e6), // 장면 체류시간(TTS)에 맞춰 자동(모델 허용값 스냅)
+      });
+      setSceneMedia(scene.sceneNumber, asset);
+    } catch (e) {
+      alert(`영상 변환 실패: ${e?.response?.data?.error || e.message}`);
+    } finally { setI2vBusy(false); }
+  };
   const language = useStore((s) => s.language);
   const setSceneTts = useStore((s) => s.setSceneTts);
 
@@ -153,7 +197,7 @@ export default function SceneCard({ scene, checked = false, onToggleCheck }) {
   const onSceneTts = async () => {
     setTtsAllBusy(true);
     try {
-      await runSceneTts(scene, voices, language, setSceneTts);
+      await runSceneTts(scene, voices, language, setSceneTts, isLongform ? 1.0 : null); // 롱폼은 기본 속도
     } catch (e) {
       alert(`TTS 생성 실패: ${e?.response?.data?.error || e.message || "오류"}`);
     } finally {
@@ -298,6 +342,32 @@ export default function SceneCard({ scene, checked = false, onToggleCheck }) {
               </div>
             )}
           </div>
+
+          {/* 롱폼: 이미지 프롬프트 + 개별 생성 */}
+          {isLongform && (
+            <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 6 }}>
+              <button className="ghost" style={{ fontSize: 12 }} onClick={() => setShowPrompt((v) => !v)}>
+                🎨 이미지 프롬프트 {showPrompt ? "▾" : scene.imagePrompt?.trim() ? "▸ ✓" : "▸"}
+              </button>
+              {showPrompt && (
+                <div style={{ marginTop: 4 }}>
+                  <textarea rows={3} style={{ fontSize: 12 }} value={scene.imagePrompt || ""}
+                    placeholder="이 장면의 이미지 프롬프트 (영어) — 좌측 '일괄 생성' 또는 직접 입력"
+                    onChange={(e) => updateSceneStore(scene.sceneNumber, { imagePrompt: e.target.value })} />
+                  {(scene.characterNames || []).length > 0 && (
+                    <div className="muted" style={{ fontSize: 11, margin: "2px 0" }}>
+                      🎭 등장: {scene.characterNames.join(", ")}
+                    </div>
+                  )}
+                  {imgBusy ? <Spinner sm /> : (
+                    <button className="ghost" style={{ fontSize: 12 }} onClick={onGenImage} disabled={!scene.imagePrompt?.trim()}>
+                      🖼 {scene.media ? "이미지 재생성(교체)" : "이미지 생성"}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -308,6 +378,13 @@ export default function SceneCard({ scene, checked = false, onToggleCheck }) {
         {scene.sceneTts?.localPath && (
           <button className="ghost" style={{ fontSize: 12 }} title="장면 TTS 미리듣기"
             onClick={() => playAudio(workspaceUrl(scene.sceneTts.localPath))}>▶ {fmtUs(scene.sceneTts.durationUs)}</button>
+        )}
+        {/* 롱폼: 선택 장면만 이미지→영상 변환(i2v) */}
+        {isLongform && scene.media && scene.media.durationUs == null && (
+          i2vBusy ? <Spinner sm /> : (
+            <button className="ghost" style={{ fontSize: 12 }} title="이 이미지를 AI 영상으로 변환 (선택한 장면만)"
+              onClick={onI2v}>🎞 영상으로</button>
+          )
         )}
         {/* 장면 시작 효과음 */}
         {sfxBusy ? <Spinner sm /> : scene.startSfx ? (

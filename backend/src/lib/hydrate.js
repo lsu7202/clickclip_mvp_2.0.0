@@ -5,15 +5,14 @@ export function defaultVoiceId() {
   return config.typecastVoices[0]?.voiceId || config.typecastVoices[0]?.voice_id || "";
 }
 
-// 자막1 줄 1개를 완전체로
+// 나레이션 자막 줄 1개를 완전체로
 export function hydrateSubtitle1Line(line) {
   return {
     lineNumber: line.lineNumber,
     text: line.text,
     ttsText: line.text,
     ttsTextEdited: false,
-    voiceId: null,
-    tts: null,
+    ttsRange: null,
   };
 }
 
@@ -26,7 +25,7 @@ export function hydrateSplitScene(scene) {
     muted: false,
     fitToTts: true,
     subtitle1Lines: (scene.subtitle1Lines || []).map(hydrateSubtitle1Line),
-    subtitle2Lines: [],
+    commentaryLines: [],
     durationUs: 0,
   };
 }

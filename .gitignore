@@ -5,9 +5,21 @@ __pycache__/
 *.pyc
 .venv/
 
-# env / secrets
+# env / secrets (백업본 포함 전부, 예시 파일만 허용)
 .env
+.env.*
+!.env.example
 resources/gcp/*.json
+
+# 참고용 별도 프로젝트 / 로컬 실험물
+yt-ai-platform/
+
+# 루트에 떨어지는 CapCut 드래프트/영상/추출 원본 (추출용 임시)
+/draft_info.json
+/draft_meta_info.json
+/명량해전*/
+/*.mp4
+*.bak
 
 # generated runtime data (keep dir, ignore contents)
 data/workspace/*
@@ -26,8 +38,13 @@ resources/my_voices/*
 !resources/my_voices/.gitkeep
 resources/capcut_template/*
 !resources/capcut_template/.gitkeep
+!resources/capcut_template/animations.json
 resources/fonts/*
 !resources/fonts/.gitkeep
+resources/my_sound_effect/*
+!resources/my_sound_effect/.gitkeep
+resources/my_characters/*
+!resources/my_characters/.gitkeep
 
 # build
 frontend/dist/
