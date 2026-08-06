@@ -6,7 +6,7 @@ import { useStore } from "../store/useStore.js";
 import { usePlaybackStore } from "../store/playbackStore.js";
 import { lineDurationUs, sceneDurationUs } from "../store/sceneOps.js";
 import { useSoundEffects, useVoices } from "../hooks/useResources.js";
-import { styleP } from "../config/imageStyles.js";
+import { NO_TEXT, styleP } from "../config/imageStyles.js";
 import { fmtUs } from "../util/format.js";
 import { playAudio } from "../util/audio.js";
 import { Spinner } from "./Loading.jsx";
@@ -134,7 +134,7 @@ export default function SceneCard({ scene, checked = false, onToggleCheck }) {
       const ref = storeCharacters.find((c) => (scene.characterNames || []).includes(c.name) && c.refLocalPath);
       const asset = await generateAiMedia({
         mediaType: "image",
-        situationText: `${scene.imagePrompt}, ${styleP(useStore.getState().imageStyle)}`,
+        situationText: `${scene.imagePrompt}, ${styleP(useStore.getState().imageStyle)} ${NO_TEXT}`,
         referencePath: ref?.refLocalPath ?? null,
         aspectRatio: "16:9",
       });
@@ -199,7 +199,9 @@ export default function SceneCard({ scene, checked = false, onToggleCheck }) {
     try {
       await runSceneTts(scene, voices, language, setSceneTts, isLongform ? 1.0 : null); // 롱폼은 기본 속도
     } catch (e) {
-      alert(`TTS 생성 실패: ${e?.response?.data?.error || e.message || "오류"}`);
+      alert(e?.response?.status === 402
+        ? "TTS 크레딧이 소진되었습니다.\nTypecast(https://typecast.ai/developers/api)에서 충전 후 다시 시도하세요."
+        : `TTS 생성 실패: ${e?.response?.data?.error || e.message || "오류"}`);
     } finally {
       setTtsAllBusy(false);
     }

@@ -74,3 +74,12 @@ Briefly describe the background (The background is ~)
 - Use of physically existing spaces or backgrounds. (Mathematical graphs, digital, or futuristic backgrounds are bad examples.)
 
 * After writing all outputs, re-verify that all of the above rules have been followed. In particular, mandatory reviews of prohibited items are required.
+# ABSOLUTE NO-TEXT RULE (highest priority)
+
+The image model cannot draw letters — any text becomes broken garbage glyphs. Therefore the prompt must NEVER evoke text in any way:
+
+- Never quote dialogue or words. Never write patterns like: shouting "help", a sign that says ..., the word ..., named ..., labeled ...
+- When a character speaks or shouts, describe ONLY the expression and body language instead. (Incorrect: The Brother shouting "help me" / Correct: The Brother shouting desperately with his mouth wide open, tears in his eyes, hands cupped around his mouth)
+- Do not include objects whose purpose is writing or that typically carry text: books with visible pages, letters, scrolls with writing, signs, banners, name plates, price tags, newspapers, documents, maps with labels, calendars, clocks with numbers.
+- Do not use quotation marks anywhere in the prompt.
+- Every prompt must end with: No text, no letters, no numbers, no writing anywhere.

@@ -15,3 +15,6 @@ export const IMAGE_STYLES = [
 
 export const styleP = (key) =>
   (IMAGE_STYLES.find((s) => s.key === key) || IMAGE_STYLES[0]).prompt;
+
+// 이미지 모델이 글자를 못 그림 → 모든 이미지 생성 프롬프트 끝에 강제 부착
+export const NO_TEXT = "Absolutely no text, no letters, no numbers, no words, no writing, no signs with writing anywhere in the image.";

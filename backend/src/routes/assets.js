@@ -90,20 +90,45 @@ const STOCK_DIR = process.env.MY_CHARACTERS_DIR || "/resources/my_characters";
 const stockPath = (style, archetype) =>
   path.join(STOCK_DIR, path.basename(style), `${path.basename(archetype)}.png`);
 
+// GET /characters-stock/custom — 사용자 커스텀 인물 폴더(my_characters/custom/*.png|jpg) 목록
+router.get(
+  "/characters-stock/custom",
+  asyncHandler(async (req, res) => {
+    let files = [];
+    try {
+      files = (await fs.readdir(path.join(STOCK_DIR, "custom")))
+        .filter((f) => /\.(png|jpe?g|webp)$/i.test(f));
+    } catch { /* 폴더 없음 → 빈 목록 */ }
+    res.json({ items: files.map((f) => ({ name: path.basename(f, path.extname(f)), file: f })) });
+  })
+);
+
 // POST /characters-stock/use — 라이브러리에 있으면 workspace로 복사해 반환, 없으면 404
 router.post(
   "/characters-stock/use",
   asyncHandler(async (req, res) => {
     const { style, archetype } = req.body;
-    const src = stockPath(style || "", archetype || "");
+    const dir = path.join(STOCK_DIR, path.basename(style || ""));
+    const base = path.basename(archetype || "");
+    // .png 우선, 없으면 같은 이름의 다른 확장자(jpg 등) 탐색 — custom 폴더 대응
+    let src = path.join(dir, `${base}.png`);
     let buf;
     try {
       buf = await fs.readFile(src);
     } catch {
-      res.status(404).json({ error: "stock_not_found" });
-      return;
+      try {
+        const hit = (await fs.readdir(dir)).find(
+          (f) => path.basename(f, path.extname(f)) === base && /\.(png|jpe?g|webp)$/i.test(f)
+        );
+        if (!hit) throw new Error("none");
+        src = path.join(dir, hit);
+        buf = await fs.readFile(src);
+      } catch {
+        res.status(404).json({ error: "stock_not_found" });
+        return;
+      }
     }
-    const relPath = `characters/${uuid()}.png`;
+    const relPath = `characters/${uuid()}${path.extname(src) || ".png"}`;
     await saveBuffer(relPath, buf);
     res.json({ localPath: relPath });
   })

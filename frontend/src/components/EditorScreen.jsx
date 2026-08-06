@@ -119,7 +119,14 @@ export default function EditorScreen() {
       for (const sc of scenes) {
         try {
           await runSceneTts(sc, voices, language, setSceneTts, format === "longform" ? 1.0 : null);
-        } catch { /* 실패 장면은 건너뜀 */ }
+        } catch (e) {
+          // 크레딧 소진은 재시도해도 실패 → 즉시 중단하고 안내(헛호출 방지)
+          if (e?.response?.status === 402) {
+            alert("TTS 크레딧이 소진되어 생성을 중단했습니다.\nTypecast(https://typecast.ai/developers/api)에서 크레딧을 충전한 뒤 다시 시도하세요.");
+            break;
+          }
+          /* 그 외 실패 장면은 건너뜀 */
+        }
       }
     } finally {
       setTtsAllBusy(false);

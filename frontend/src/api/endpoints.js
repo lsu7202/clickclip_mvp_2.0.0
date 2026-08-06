@@ -23,6 +23,9 @@ export const useStockCharacter = ({ style, archetype }) =>
   api.post("/characters-stock/use", { style, archetype }).then((r) => r.data);
 export const saveStockCharacter = ({ style, archetype, localPath }) =>
   api.post("/characters-stock/save", { style, archetype, localPath }).then((r) => r.data);
+export const listCustomCharacters = () =>
+  // resources/my_characters/custom/ 폴더의 사용자 인물 이미지 목록
+  api.get("/characters-stock/custom").then((r) => r.data.items);
 
 export const generateImagePrompts = ({ category, language, characters, scenes }) =>
   // 장면별 이미지 프롬프트 일괄 생성(전체 맥락 1회)

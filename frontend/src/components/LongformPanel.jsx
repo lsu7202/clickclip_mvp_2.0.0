@@ -1,22 +1,21 @@
 // 롱폼 제작 패널(왼쪽): 등장인물 시트(동일 인물 일관성) + 이미지 프롬프트/이미지 일괄 생성.
 // 흐름: 인물 추출 → 레퍼런스 생성(확인·재생성) → 프롬프트 일괄 → 이미지 일괄(캐릭터 장면은 레퍼런스 edit).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { extractCharacters, generateAiMedia, generateImagePrompts, saveStockCharacter, uploadAsset, useStockCharacter } from "../api/endpoints.js";
+import { extractCharacters, generateAiMedia, generateImagePrompts, listCustomCharacters, saveStockCharacter, uploadAsset, useStockCharacter } from "../api/endpoints.js";
 import { workspaceUrl } from "../api/client.js";
 import { useStore } from "../store/useStore.js";
-import { IMAGE_STYLES, styleP } from "../config/imageStyles.js";
+import { IMAGE_STYLES, NO_TEXT, styleP } from "../config/imageStyles.js";
 import { ARCHETYPE_KEYS, archetypeDesc } from "../config/archetypes.js";
 import { Spinner } from "./Loading.jsx";
 import Loading from "./Loading.jsx";
 
-const CHAR_CATEGORIES = new Set(["war", "folktale"]);
 
 // 캐릭터 레퍼런스 생성(외형 묘사 → 전신 1장, 선택한 스타일 적용). 장면 이미지의 기준이 됨.
 async function makeReference(description, stylePrompt) {
   return generateAiMedia({
     mediaType: "image",
-    situationText: `${description}. Character reference, full body, front view, standing, plain white background. ${stylePrompt}`,
+    situationText: `${description}. Character reference, full body, front view, standing, plain white background. ${stylePrompt} ${NO_TEXT}`,
     aspectRatio: "1:1",
   });
 }
@@ -37,8 +36,21 @@ export default function LongformPanel() {
   const [open, setOpen] = useState(true);
   const [busyMsg, setBusyMsg] = useState(null); // 진행 중 안내(애니메이션 로딩)
   const [refBusy, setRefBusy] = useState(null); // 레퍼런스 생성 중인 캐릭터명
+  const [customList, setCustomList] = useState([]); // my_characters/custom/ 폴더 인물들
+  useEffect(() => { listCustomCharacters().then(setCustomList).catch(() => {}); }, []);
 
-  const hasChars = CHAR_CATEGORIES.has(category);
+  // 폴더 인물 선택 → workspace 복사본을 레퍼런스로
+  const onPickCustom = async (c, name) => {
+    if (!name) return;
+    setRefBusy(c.name);
+    try {
+      const hit = await useStockCharacter({ style: "custom", archetype: name });
+      updateCharacter(c.name, { refLocalPath: hit.localPath });
+    } catch (e) {
+      alert(`폴더 인물 적용 실패: ${e?.response?.data?.error || e.message}`);
+    } finally { setRefBusy(null); }
+  };
+
   const stylePrompt = styleP(imageStyle);
 
   // 스톡 캐스팅: 아키타입 캐릭터의 레퍼런스를 라이브러리에서 가져오고(use),
@@ -54,11 +66,16 @@ export default function LongformPanel() {
     return asset.localPath;
   };
 
+  // 추출 소스: 대본이 있으면 대본, 없으면 장면 자막을 이어붙여 사용(대본 없이도 추출 가능)
+  const extractSource = () =>
+    scriptText.trim() ||
+    scenes.map((sc) => (sc.subtitle1Lines || []).map((l) => l.text).join(" ")).join(" ").trim();
+
   // 1) 등장인물 추출 → 아키타입 캐릭터는 스톡 자동 캐스팅
   const onExtract = async () => {
     setBusyMsg("등장인물 추출 중…");
     try {
-      const chars = await extractCharacters({ scriptText, category, language, archetypeNames: ARCHETYPE_KEYS });
+      const chars = await extractCharacters({ scriptText: extractSource(), category, language, archetypeNames: ARCHETYPE_KEYS });
       const out = [];
       for (const c of chars) {
         let refLocalPath = null;
@@ -127,7 +144,12 @@ export default function LongformPanel() {
       }));
       const out = await generateImagePrompts({
         category, language,
-        characters: characters.map(({ name, description }) => ({ name, description })),
+        // 묘사가 빈 캐릭터(직접 추가)는 기본 문구로 보정 — 빈 묘사면 Gemini가 캐스팅을 누락함
+        characters: characters.map(({ name, description }) => ({
+          name,
+          description: description?.trim() ||
+            "a distinctive recurring mascot character; its exact appearance follows its reference image",
+        })),
         scenes: payload,
       });
       for (const p of out) {
@@ -148,7 +170,7 @@ export default function LongformPanel() {
       const ref = characters.find((c) => (sc.characterNames || []).includes(c.name) && c.refLocalPath);
       const asset = await generateAiMedia({
         mediaType: "image",
-        situationText: `${sc.imagePrompt}, ${stylePrompt}`,
+        situationText: `${sc.imagePrompt}, ${stylePrompt} ${NO_TEXT}`,
         referencePath: ref?.refLocalPath ?? null,
         aspectRatio: "16:9",
       });
@@ -174,6 +196,84 @@ export default function LongformPanel() {
     }
   };
 
+
+  // 🚀 한 번에 생성: 인물(없으면 추출+캐스팅) → 레퍼런스 → 프롬프트(항상 새로) → 이미지.
+  // 단계 순서를 몰라도 되도록 전체 사슬을 올바른 순서로 자동 실행. 스토어 지연을 피하려고 로컬 변수로 연결.
+  const FALLBACK_DESC = "a distinctive recurring mascot character; its exact appearance follows its reference image";
+  const onAuto = async () => {
+    try {
+      // 1) 등장인물: 하나도 없으면 대본/자막에서 추출 + 스톡 캐스팅
+      let chars = characters.map((c) => ({ ...c }));
+      if (!chars.length && extractSource()) {
+        setBusyMsg("등장인물 추출 중…");
+        const ex = await extractCharacters({ scriptText: extractSource(), category, language, archetypeNames: ARCHETYPE_KEYS });
+        chars = [];
+        for (const c of ex) {
+          let refLocalPath = null;
+          if (c.archetype) {
+            setBusyMsg(`스톡 캐스팅 중… ${c.name}`);
+            try { refLocalPath = await castStock(c, imageStyle); } catch { /* 수동 처리 가능 */ }
+          }
+          chars.push({ ...c, refLocalPath });
+        }
+        setCharacters(chars.map((c) => ({ ...c })));
+      }
+      // 2) 레퍼런스 없는 인물 자동 생성(외형 묘사가 있을 때)
+      for (const c of chars) {
+        if (!c.refLocalPath && c.description?.trim()) {
+          setBusyMsg(`레퍼런스 생성 중… ${c.name}`);
+          try {
+            const a = await makeReference(c.description, stylePrompt);
+            c.refLocalPath = a.localPath;
+            updateCharacter(c.name, { refLocalPath: a.localPath });
+          } catch { /* skip */ }
+        }
+      }
+      // 3) 프롬프트: 항상 새로 생성 → 현재 인물(밥 포함)이 장면에 배정됨
+      setBusyMsg("이미지 프롬프트 생성 중…");
+      const payload = scenes.map((sc) => ({
+        sceneNumber: sc.sceneNumber,
+        text: (sc.subtitle1Lines || []).map((l) => l.text).join(" "),
+      }));
+      const out = await generateImagePrompts({
+        category, language,
+        characters: chars.map(({ name, description }) => ({ name, description: description?.trim() || FALLBACK_DESC })),
+        scenes: payload,
+      });
+      const byNum = {};
+      for (const pr of out) {
+        byNum[pr.sceneNumber] = pr;
+        updateScene(pr.sceneNumber, { imagePrompt: pr.prompt, characterNames: pr.characterNames || [] });
+      }
+      // 4) 이미지: 미디어 없는 장면만(로컬 데이터로 직접 연결)
+      const targets = scenes.filter((sc) => !sc.media && byNum[sc.sceneNumber]?.prompt?.trim());
+      const failed = [];
+      for (const sc of targets) {
+        const pr = byNum[sc.sceneNumber];
+        setBusyMsg(`이미지 생성 중… 장면 ${sc.sceneNumber}`);
+        const gen = async () => {
+          const ref = chars.find((c) => (pr.characterNames || []).includes(c.name) && c.refLocalPath);
+          const asset = await generateAiMedia({
+            mediaType: "image",
+            situationText: `${pr.prompt}, ${stylePrompt} ${NO_TEXT}`,
+            referencePath: ref?.refLocalPath ?? null,
+            aspectRatio: "16:9",
+          });
+          setSceneMedia(sc.sceneNumber, asset);
+        };
+        try { await gen(); }
+        catch { try { await new Promise((r) => setTimeout(r, 2000)); await gen(); } catch { failed.push(sc.sceneNumber); } }
+      }
+      const skipped = scenes.filter((sc) => sc.media).length;
+      let msg = `완료! 이미지 ${targets.length - failed.length}개 생성.`;
+      if (skipped) msg += `\n이미 이미지가 있던 장면 ${skipped}개는 건너뜀 — 새 인물을 반영하려면 그 장면 카드의 "이미지 재생성(교체)"를 누르세요.`;
+      if (failed.length) msg += `\n실패: 장면 ${failed.join(", ")} (다시 실행하면 재시도)`;
+      alert(msg);
+    } catch (e) {
+      alert(`자동 생성 실패: ${e?.response?.data?.error || e.message}`);
+    } finally { setBusyMsg(null); }
+  };
+
   const promptCount = scenes.filter((sc) => sc.imagePrompt?.trim()).length;
 
   return (
@@ -192,14 +292,21 @@ export default function LongformPanel() {
             </select>
           </div>
 
-          {/* 등장인물(전쟁/전래동화만 — 경제는 사물만 규칙) */}
-          {hasChars && (
+          {/* 메인: 버튼 하나로 인물→레퍼런스→프롬프트→이미지 전체 실행 */}
+          {busyMsg ? <Loading text={busyMsg} /> : (
+            <button className="primary" onClick={onAuto} disabled={scenes.length === 0}>
+              🚀 이미지 한 번에 생성 (인물→프롬프트→이미지)
+            </button>
+          )}
+
+          {/* 등장인물 — 전 카테고리(경제 마스코트 포함). 캐릭터 없으면 경제는 사물만 지침 유지 */}
+          {(
             <div>
               <div className="row" style={{ alignItems: "center" }}>
                 <span style={{ fontSize: 13, fontWeight: 700 }}>🎭 등장인물 ({characters.length})</span>
                 <span style={{ flex: 1 }} />
                 <button className="ghost" style={{ fontSize: 12 }} onClick={onAddCharacter}>＋ 직접 추가</button>
-                <button className="ghost" style={{ fontSize: 12 }} onClick={onExtract} disabled={!scriptText.trim() || !!busyMsg}>
+                <button className="ghost" style={{ fontSize: 12 }} onClick={onExtract} disabled={!extractSource() || !!busyMsg}>
                   대본에서 추출
                 </button>
               </div>
@@ -226,6 +333,14 @@ export default function LongformPanel() {
                           <input type="file" accept="image/*" style={{ display: "none" }}
                             onChange={(e) => { onUploadRef(c, e.target.files?.[0]); e.target.value = ""; }} />
                         </label>
+                        {customList.length > 0 && (
+                          <select style={{ fontSize: 11, width: "auto" }} value=""
+                            title="resources/my_characters/custom 폴더의 인물 선택"
+                            onChange={(e) => { onPickCustom(c, e.target.value); e.target.value = ""; }}>
+                            <option value="">📁 폴더에서…</option>
+                            {customList.map((it) => <option key={it.file} value={it.name}>{it.name}</option>)}
+                          </select>
+                        )}
                       </div>
                     )}
                   </div>
@@ -234,17 +349,18 @@ export default function LongformPanel() {
             </div>
           )}
 
-          {/* 프롬프트/이미지 일괄 */}
-          {busyMsg ? <Loading text={busyMsg} /> : (
-            <>
-              <button onClick={onPrompts} disabled={scenes.length === 0}>
+          {/* 고급: 단계별 실행(수동 제어가 필요할 때만) */}
+          <details>
+            <summary style={{ fontSize: 12, cursor: "pointer", color: "var(--muted, #9a9aab)" }}>고급: 단계별 실행</summary>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+              <button onClick={onPrompts} disabled={scenes.length === 0 || !!busyMsg}>
                 🎨 이미지 프롬프트 일괄 생성 {promptCount > 0 ? `(완료 ${promptCount})` : ""}
               </button>
-              <button onClick={onImages} disabled={promptCount === 0}>
+              <button onClick={onImages} disabled={promptCount === 0 || !!busyMsg}>
                 🖼 이미지 일괄 생성 (미디어 없는 장면만)
               </button>
-            </>
-          )}
+            </div>
+          </details>
         </div>
       )}
     </div>

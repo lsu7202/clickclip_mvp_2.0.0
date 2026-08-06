@@ -270,6 +270,7 @@ export function buildDraft(scenes, { templateId, framePath, folderName, captions
 
   // ---- 텍스트 머티리얼 문자열 치환 ----
   function makeTextMaterial(textStr, durUs) {
+    textStr = String(textStr).replace(/\s+/g, " ").trim(); // 개행/중복공백 → 단일 공백(하단 공백 방지)
     const [, tpl] = findMaterial(info, textSegTpl.material_id);
     const nm = clone(tpl);
     nm.id = UID();

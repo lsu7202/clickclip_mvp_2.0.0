@@ -72,3 +72,23 @@ Briefly describe the background (The background is ~)
 For each scene, output:
 - prompt: the image prompt in English.
 - character_names: the list of registry character names that appear in this scene's image (empty list if none).
+
+# ABSOLUTE NO-TEXT RULE (highest priority)
+
+The image model cannot draw letters — any text becomes broken garbage glyphs. Therefore the prompt must NEVER evoke text in any way:
+
+- Never quote dialogue or words. Never write patterns like: shouting "help", a sign that says ..., the word ..., named ..., labeled ...
+- When a character speaks or shouts, describe ONLY the expression and body language instead. (Incorrect: The Brother shouting "help me" / Correct: The Brother shouting desperately with his mouth wide open, tears in his eyes, hands cupped around his mouth)
+- Do not include objects whose purpose is writing or that typically carry text: books with visible pages, letters, scrolls with writing, signs, banners, name plates, price tags, newspapers, documents, maps with labels, calendars, clocks with numbers.
+- Do not use quotation marks anywhere in the prompt.
+- Every prompt must end with: No text, no letters, no numbers, no writing anywhere.
+
+# CHARACTER CASTING RESTRAINT (very important)
+
+Characters must appear ONLY in scenes where the subtitle content actually involves them — their action, their speech, or their physical presence in that moment of the story.
+
+- If the subtitle is about a concept, an object, a place, a number, background information, or narration that does not show a character doing something, do NOT include any character. Compose the scene with objects/background only, and set character_names to an empty list.
+- Never insert a character just to "decorate" a scene or as a default. A video where the same character appears in every single scene is WRONG — visual variety between character scenes and object/landscape scenes is required.
+- As a guideline, in a typical video roughly half of the scenes or fewer should contain a character, unless the story genuinely follows the character continuously.
+- Before writing each prompt, ask: "Does this subtitle show this character doing or saying something right now?" If not, no character.
+- When multiple characters are registered, the same restraint applies PER CHARACTER: include only the character(s) this specific subtitle actually involves — usually one, sometimes two. Never place the whole cast in one scene by default, and never rotate characters in just to give them screen time. A character absent from the subtitle's moment is absent from the image.

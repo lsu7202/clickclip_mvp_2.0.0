@@ -27,7 +27,18 @@ router.post(
       return;
     }
 
-    const ai = await aiPost("/tts", { ttsText: joined, voiceId, language, speed: speed ?? null });
+    let ai;
+    try {
+      ai = await aiPost("/tts", { ttsText: joined, voiceId, language, speed: speed ?? null });
+    } catch (e) {
+      // Typecast 크레딧 소진/계정 비활성은 재시도해도 소용없음 → 402로 명확히 전달(프론트가 즉시 중단)
+      const detail = String(e?.response?.data?.detail || e?.message || "");
+      if (e?.response?.status === 402 || /CREDIT_INSUFFICIENT|credit_insufficient|typecast_402/i.test(detail)) {
+        res.status(402).json({ error: "tts_credit_insufficient" });
+        return;
+      }
+      throw e;
+    }
     const ext = ai.audioFormat || "wav";
     const relPath = `tts/scene-${sceneNumber ?? "x"}-${uuid()}.${ext}`;
     await saveBase64(relPath, ai.audioBase64);
