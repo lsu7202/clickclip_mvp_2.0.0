@@ -39,7 +39,13 @@
 ```
 
 <p align="center">
-  <img src="docs/img/setup.png" alt="설정 화면" width="100%">
+  <img src="docs/img/editor.png" alt="편집 화면" width="100%">
+  <br>
+  <sub>편집 화면 — 왼쪽 미리보기, 가운데 장면별 자막 줄과 성우, 오른쪽에서 장면마다 AI 이미지 · GIF · 업로드 미디어를 고른다</sub>
+</p>
+
+<p align="center">
+  <img src="docs/img/setup.png" alt="설정 화면" width="70%">
   <br>
   <sub>시작 화면 — 형식(쇼츠 · 롱폼), 프레임 템플릿, 언어를 고르고 대본을 붙여넣는다</sub>
 </p>
